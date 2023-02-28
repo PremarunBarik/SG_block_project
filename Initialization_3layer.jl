@@ -19,6 +19,6 @@ z_pos = Float64[ rand(rng, Float64)*Lz for i in 1:Lz]
 #Creating file to save the spin positions
 open("spin_positions.txt", "w") do io
   for i in 1:Lx
-    println(io,x_pos[i]"\t",y_pos[i],"\t",z_pos[i])
+    println(io,x_pos[i],"\t",y_pos[i],"\t",z_pos[i])
   end
 end
