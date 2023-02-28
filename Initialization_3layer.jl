@@ -9,11 +9,11 @@ Ly = 10
 Lz = 10
 
 #initialization the number of spins
-N = 300
+N = 1000
 mx = Int64[ (-1)^rand(rng, Int64) for i in 1:N]
-x_pos = Float64[ rand(rng, Float64)*Lx for i in 1:Lx]
-y_pos = Float64[ rand(rng, Float64)*Ly for i in 1:Ly]
-z_pos = Float64[ rand(rng, Float64)*Lz for i in 1:Lz]
+x_pos = Float64[ rand(rng, Float64)*Lx for i in 1:N]
+y_pos = Float64[ rand(rng, Float64)*Ly for i in 1:N]
+z_pos = Float64[ rand(rng, Float64)*Lz for i in 1:N]
 
 
 #Creating file to save the spin positions
