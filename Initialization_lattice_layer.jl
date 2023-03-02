@@ -25,7 +25,7 @@ x_pos_fm = [1,2,5,6,9,10]
 y_pos_fm = [1,2,5,6,9,10]
 Lx_fm = length(x_pos_fm)
 Ly_fm = length(y_pos_fm)
-Lz_sm = 1
+Lz_fm = 1
 
 #FERROMAGNET SPIN POSITIONS
 x_pos_fm = repeat(x_pos_fm, inner=(Lx_fm,1))
