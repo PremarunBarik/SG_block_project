@@ -21,4 +21,8 @@ z_pos = collect(1:Lz)
 z_pos = repeat(z_pos, inner=(Lx*Ly,1))
 
 #PRINTING SPIN POSITIONS
-open(
+open("spin_lattice.txt", "w") do io
+  for i in 1:N
+    println(io,x_pos[i],"\t",y_pos[i],"\t",z_pos[i])
+  end
+end
