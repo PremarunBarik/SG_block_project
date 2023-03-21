@@ -1,5 +1,4 @@
 using GLMakie, Random, LinearAlgebra
-using Random
 
 rng = MersenneTwister(1234)
 
@@ -22,6 +21,7 @@ y_dir = Float64[ 2*rand(rng, Float64)-1 for i in 1:N]
 z_dir = Float64[ 2*rand(rng, Float64)-1 for i in 1:N]
 
 #Plotting the spins
-spin_plot = quiver( x_pos, y_pos, z_pos, x_dir, y_dir, z_dir)
-save(spin_plot, "initial_spin.png")
+fig = Figure()
+spin_plot = quiver(fig, x_pos, y_pos, z_pos, x_dir, y_dir, z_dir)
+save(fig, "initial_spin.png")
 
