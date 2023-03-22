@@ -22,8 +22,8 @@ y_dir_sg = Float64[ 2*rand(rng, Float64)-1 for i in 1:N_sg]
 z_dir_sg = Float64[ 2*rand(rng, Float64)-1 for i in 1:N_sg]
 
 #INITIALIZATION OF THE FM LATTICE
-x_pos_fm = [1.0,2.0,5.0,6.0,9.0,10.0]
-y_pos_fm = [1.0,2.0,5.0,6.0,9.0,10.0]
+x_pos_fm = [1.0,1.25,1.5,1.75,2.0,5.0,5.25,5.5,5.75,6.0,9.0,9.25,9.5,9.75,10.0]
+y_pos_fm = [1.0,1.25,1.5,1.75,2.0,5.0,5.25,5.5,5.75,6.0,9.0,9.25,9.5,9.75,10.0]
 z_pos_fm = [4.0]
 Lx_fm = length(x_pos_fm)
 Ly_fm = length(y_pos_fm)
