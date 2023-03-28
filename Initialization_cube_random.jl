@@ -22,12 +22,16 @@ y_dir_sg = zeros(N_sg,1)
 z_dir_sg = zeros(N_sg,1)
 
 for i in 1:N_sg
-  theta = rand(rng, Float64)2*pi
+  theta = rand(rng, Float64)*2*pi
   phi = rand(rng,Float64)*pi
   x_dir_sg[i] = sin(theta)cos(phi)
   y_dir_sg[i] = sin(theta)sin(phi)
   z_dir_sg[i] = cos(theta)
 end
+
+x_dir_sg = vec(x_dir_sg)
+y_dir_sg = vec(y_dir_sg)
+z_dir_sg = vec(z_dir_sg)
 
 #INITIALIZATION OF THE FM LATTICE
 x_pos_fm = [1.0,1.25,1.5,1.75,2.0,5.0,5.25,5.5,5.75,6.0,9.0,9.25,9.5,9.75,10.0]
@@ -60,7 +64,7 @@ z_dir_fm = Float64[ 0.0 for i in 1:N_fm]
 N_tot = N_sg+N_fm
 
 #INTERACTION MATRIX
-Interac = zeros(N_tot,N_tot)
+#Interac = zeros(N_tot,N_tot)
 
 #Plotting the spins
 aspect = (10, 10, 5)
