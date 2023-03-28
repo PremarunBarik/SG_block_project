@@ -22,8 +22,8 @@ y_dir_sg = zeros(N_sg,1)
 z_dir_sg = zeros(N_sg,1)
 
 for i in 1:N_sg
-  theta = rand(rng, Float64)*pi
-  phi = rand(rng,Float64)*pi/2
+  theta = rand(rng, Float64)2*pi
+  phi = rand(rng,Float64)*pi
   x_dir_sg[i] = sin(theta)cos(phi)
   y_dir_sg[i] = sin(theta)sin(phi)
   z_dir_sg[i] = cos(theta)
