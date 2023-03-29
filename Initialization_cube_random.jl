@@ -1,5 +1,9 @@
 using Makie, GLMakie, Random, LinearAlgebra
 
+#DEFINED VARIABLES
+a =                 #near neighbour distance
+alpha =             #2K_f*a the periodicity of RKKY
+
 
 rng = MersenneTwister(1234)
 
@@ -63,8 +67,15 @@ z_dir_fm = Float64[ 0.0 for i in 1:N_fm]
 #NUMBER OF TOTAL SPINS
 N_tot = N_sg+N_fm
 
+#RKKY INETRACTION J VALUE
+function RKKY_J(x_1, y_1, z_1, x_2, y_2, z_2, a, alpha)
+  J_0 = (a^2)*alpha
+  #distance between spins in terms of near neighbour distance
+  r_ij = sqrt((x_1-x_2)^2 + (y_1-Y_2)^2 + (z_1-z_2)^2)/a
+end
+
 #INTERACTION MATRIX
-#Interac = zeros(N_tot,N_tot)
+Interac = zeros(N_tot,N_tot)
 
 #Plotting the spins
 aspect = (10, 10, 5)
