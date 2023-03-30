@@ -1,9 +1,9 @@
-using Random
+using Random, GLMakie
 
 mx = collect(0:0.1:10)
 N = length(mx)
-a = 1/5
-alpha = 5.0
+a = 1/10
+alpha = 1.0
 function RKKY_J(x_1, x_2, a, alpha)
          J_0 = (a^2)*alpha
            #distance between spins in terms of near neighbour distance
@@ -17,9 +17,16 @@ interac = zeros(N,1)
 for i in 1:N
 interac[i] = RKKY_J(mx[1], mx[i], a, alpha)
 end
-open("RKKY_J_value_alpha7.0.txt", "w") do io 					#creating a file to save data
-for i in 1:N
-	println(io,i,"\t",interac[i],"\t",mx[i])
-end
-end
-println("--COMPLETE--")
+
+mx = vec(mx)
+interac = vec(interac)
+
+fig = Figure()
+ax = Axis(fig[1:1])
+lines!(ax, mx, interac)
+#open("RKKY_J_value_alpha7.0.txt", "w") do io 					#creating a file to save data
+#for i in 1:N
+#	println(io,i,"\t",interac[i],"\t",mx[i])
+#end
+#end
+#println("--COMPLETE--")
