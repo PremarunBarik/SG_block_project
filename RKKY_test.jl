@@ -2,8 +2,8 @@ using Random, GLMakie
 
 mx = collect(0:0.01:3)
 N = length(mx)
-a = 1/20
-alpha = 7
+a = 1/5
+alpha = 4
 function RKKY_J(x_1, x_2, a, alpha)
          J_0 = (a^2)*alpha
            #distance between spins in terms of near neighbour distance
