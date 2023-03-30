@@ -1,8 +1,8 @@
 using Makie, GLMakie, Random, LinearAlgebra
 
 #DEFINED VARIABLES
-a =                 #near neighbour distance
-alpha =             #2K_f*a the periodicity of RKKY
+a = 1/10                #near neighbour distance (Considering the matterial to be CuMn, with Mn density to be 10%)
+alpha = 1               #2K_f*a the periodicity of RKKY
 
 
 rng = MersenneTwister(1234)
@@ -72,6 +72,10 @@ function RKKY_J(x_1, y_1, z_1, x_2, y_2, z_2, a, alpha)
   J_0 = (a^2)*alpha
   #distance between spins in terms of near neighbour distance
   r_ij = sqrt((x_1-x_2)^2 + (y_1-Y_2)^2 + (z_1-z_2)^2)/a
+  term_1 = cos(alpha*r_ij)/r_ij^3
+  term_2 = sin(alpha*r_ij)/(alpha*(r_ij)^4)
+  J = J_0*(term_1-term_2)
+  return J
 end
 
 #INTERACTION MATRIX
