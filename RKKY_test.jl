@@ -1,4 +1,7 @@
-using Random, GLMakie
+
+using Pkg
+Pkg.add("Plots")
+using Random, GLMakie, Plots
 
 mx = collect(0:0.01:3)
 N = length(mx)
@@ -21,9 +24,7 @@ end
 mx = vec(mx)
 interac = vec(interac)
 
-fig = Figure()
-ax = Axis(fig[1,1])
-lines!(ax, mx, interac)
+plot(mx, interac)
 #open("RKKY_J_value_alpha7.0.txt", "w") do io 					#creating a file to save data
 #for i in 1:N
 #	println(io,i,"\t",interac[i],"\t",mx[i])
