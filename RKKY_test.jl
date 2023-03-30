@@ -1,12 +1,9 @@
-
-using Pkg
-Pkg.add("Plots")
-using Random, GLMakie, Plots
+using Random, Plots
 
 mx = collect(0:0.01:3)
 N = length(mx)
-a = 1/5
-alpha = 4
+a = 1/10
+alpha = 7
 function RKKY_J(x_1, x_2, a, alpha)
          J_0 = (a^2)*alpha
            #distance between spins in terms of near neighbour distance
