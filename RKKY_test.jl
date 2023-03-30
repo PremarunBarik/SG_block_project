@@ -2,8 +2,8 @@ using Random
 
 mx = collect(0:0.1:10)
 N = length(mx)
-a = 1/10
-alpha = 7.0
+a = 1/5
+alpha = 5.0
 function RKKY_J(x_1, x_2, a, alpha)
          J_0 = (a^2)*alpha
            #distance between spins in terms of near neighbour distance
