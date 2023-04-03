@@ -71,7 +71,7 @@ N_tot = N_sg+N_fm
 function RKKY_J(x_1, y_1, z_1, x_2, y_2, z_2, a, alpha)
   J_0 = (a^2)*alpha
   #distance between spins in terms of near neighbour distance
-  r_ij = sqrt((x_1-x_2)^2 + (y_1-Y_2)^2 + (z_1-z_2)^2)/a
+  r_ij = sqrt((x_1-x_2)^2 + (y_1-y_2)^2 + (z_1-z_2)^2)/a
   term_1 = cos(alpha*r_ij)/r_ij^3
   term_2 = sin(alpha*r_ij)/(alpha*(r_ij)^4)
   J = J_0*(term_1-term_2)
@@ -79,7 +79,13 @@ function RKKY_J(x_1, y_1, z_1, x_2, y_2, z_2, a, alpha)
 end
 
 #INTERACTION MATRIX
-Interac = zeros(N_tot,N_tot)
+Interac = zeros(N_sg,N_sg)
+
+for i in 1:N_sg
+  for j in 1:N_sg
+    Interac[1,j] = RKKY_J(x_pos_sg[i],y_pos_sg[i],z_pos_sg[i],x_pos_sg[j],y_pos_sg[j],z_pos_sg[j], a, alpha)
+  end
+end
 
 #Plotting the spins
 aspect = (10, 10, 5)
