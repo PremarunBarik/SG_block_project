@@ -1,11 +1,13 @@
-using Random, GLMakie
+using Random, Plots
 
-mx = collect(0:0.01:3)
+mx = collect(0:0.01:5)
 N = length(mx)
-a = 1/5
-alpha = 4
+a = 3
+
+alpha = 15
+
 function RKKY_J(x_1, x_2, a, alpha)
-         J_0 = (a^2)*alpha
+         J_0 = 1/10
            #distance between spins in terms of near neighbour distance
          r_ij = sqrt((x_1-x_2)^2 )/a
          term_1 = cos(alpha*r_ij)/r_ij^3
@@ -21,9 +23,15 @@ end
 mx = vec(mx)
 interac = vec(interac)
 
-fig = Figure()
-ax = Axis(fig[1,1])
-lines!(ax, mx, interac)
+plot(mx, interac, label="alpha=$alpha, a=$a")
+
+Plots.xlabel!("distance")
+Plots.ylabel!("Interaction coefficient")
+Plots.ylims!(-2,2)
+
+png("myplot")
+
+
 #open("RKKY_J_value_alpha7.0.txt", "w") do io 					#creating a file to save data
 #for i in 1:N
 #	println(io,i,"\t",interac[i],"\t",mx[i])
