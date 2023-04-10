@@ -73,8 +73,7 @@ N_tot = N_sg+N_fm
 #quiver!(ax, x_pos_fm, y_pos_fm, z_pos_fm, x_dir_fm, y_dir_fm, z_dir_fm, color= :red)
 #Makie.save("Initial_spins.png", fig)
 
-#RKKY INETRACTION J VALUE
-
+#RKKY INETRACTION FUNCTION
 global a = 3                        #near neighbour distance (Considering the matterial to be CuMn, with Mn density to be 10%)
 global alpha =  15                  #2K_f*a the periodicity of RKKY
 
@@ -87,65 +86,34 @@ function RKKY_J(x_1, y_1, z_1, x_2, y_2, z_2, a, alpha)
   return J
 end
 
+#DUMMY RKKY INTERACTION FUNCTION
+global omega = pi                          #pediodicity
+global b = 0.5                             #damping_coefficient
+function RKKY_dummy(x_1, y_1, z_1, x_2, y_2, z_2, omega, b)
+    J_0 = 2
+    r_ij = sqrt((x_1-x_2)^2 + (y_1-y_2)^2 + (z_1-z_2)^2)
+    term_1 = cos(omega*r_ij)
+    term_2 = exp(-b*r_ij)
+    J = J_0*term_1*term_2
+    return J
+end
+
 #RKKY INTERACTION MATRIX
-interac_j = zeros(N_sg,N_sg)
+interac_j = zeros(N_sg, N_sg)
 
 for i in 1:N_sg
     for j in 1:N_sg
         if i==j
-            interac_j[i,j]=0
+          interac_j[i,j] = 0
         else
-            interac_j[i,j] = RKKY_J(x_pos_sg[i],y_pos_sg[i],z_pos_sg[i],x_pos_sg[j],y_pos_sg[j],z_pos_sg[j], a, alpha)
+          interac_j[i,j] = RKKY_dummy(x_pos_sg[i],y_pos_sg[i],z_pos_sg[i],x_pos_sg[j],y_pos_sg[j],z_pos_sg[j], omega, b)
         end
     end
 end
 
-#PRINTING J DISTRIBUTION (using plots)
-interac_dist = reshape(interac_j, (N_sg*N_sg,1))
-interac_dist = vec(interac_dist)
-#sort!(interac_dist, rev = true)
-N_dist = length(interac_dist)
-length_dist = collect(1:N_dist)
+dist_j = reshape(interac_j, (N_sg*N_sg, 1))
 
-plot(length_dist, interac_dist, label = "J distribution")
-ylabel!("Interaction coefficient (J)")
-#xlims!(0,100)
-#ylims!(-0.5,1)
-
-#INTERACTION DUE TO FERROMAGNETIC BLOCKS
-function block_interaction_energy(x_fm, y_fm, z_fm, x_sg, y_sg, z_sg, s_x, s_y, s_z)
-  E_0 = 1
-  global mag_moment_x = 1
-  r_x = x_sg - x_fm
-  r_y = y_sg - x_fm
-  r_z = z_sg - x_fm
-  r = sqrt(r_x^2 + r_y^2 + r_z^2)
-  term_1 = 3*(s_x*r_x + s_y*r_y + s_z*r_z)*(mag_moment_x*r_x)
-  term_2 = (r^2)*(mag_moment_x*s_x)
-  E_B = E_0*((term_1 - term_2)/r^5)
-  return E_B
-end
-
-energy_fm = zeros(N_sg, 1)
-energy_fm_y = zeros(N_sg, 1)
-energy_fm_z = zeros(N_sg, 1)
-
-for i in 1:N_sg                       #for loop for all the spin glass materials
-  for j in 1:N_fm                    #for loop for all the ferromagnetic dumbells
-    energy_fm[i] += block_interaction_energy(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_dir_sg[i], y_dir_sg[i], z_dir_sg[i])
-  end
-end
-
-energy_fm = vec(energy_fm)
-energy_fm_y = vec(energy_fm_y)
-energy_fm_z = vec(energy_fm_z)
-
-#PRINTING ENERGY VALUES DUE TO FERROMAGNETIC BLOCKS(using makie)
-#aspect = (10, 10, 5)
-#perspectiveness = 0.5
-#fig = Figure(; resolution=(1200, 1200))
-#ax = Axis3(fig[1, 1]; aspect, perspectiveness)
-#quiver!(ax, x_pos_sg, y_pos_sg, z_pos_sg, energy_fm, energy_fm_y, energy_fm_z)
-#quiver!(ax, x_pos_fm, y_pos_fm, z_pos_fm, x_dir_fm, y_dir_fm, z_dir_fm, color= :red)
-#display(fig)
-#Makie.save(".png", fig)
+histogram(dist_j)
+xlabel!("J values")
+ylabel!("population")
+#savefig("histogram_j.png")
