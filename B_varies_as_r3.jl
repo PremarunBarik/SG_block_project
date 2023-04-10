@@ -1,4 +1,4 @@
-using GLMakie, Random, LinearAlgebra
+using Plots, Random, LinearAlgebra
 
 rng = MersenneTwister(7635)
 
@@ -80,13 +80,13 @@ z_dir_fm = Float64[ 0.0 for i in 1:N_fm]
 N_tot = N_sg+N_fm
 
 #ONE MAGNETIC BLOCK 
-b_0 = 1/10                                  #field streength
+b_0 = 1                                  #field streength
 block_center_x = 5
 block_center_y = 5
 block_center_z = 4
 
 function magnetic_field_block(x_0, y_0, z_0, x_r, y_r, z_r, b_0)
-    dipole_moment = 1
+    dipole_moment = 5
     r_ij = sqrt((x_r - x_0)^2 + (y_r - y_0)^2 + (z_r - z_0)^2)
     B = dipole_moment/(r_ij^3)
   
@@ -95,19 +95,10 @@ end
 
 #MAGNETIC FIELD DUE TO BLOCKS
 b_block_x = vec(zeros(N_sg, 1))
-b_block_y = vec(zeros(N_sg, 1))
-b_block_z = vec(zeros(N_sg, 1))
 
 for i in 1:N_sg
   b_block_x[i] = magnetic_field_block(block_center_x, block_center_y, block_center_z, x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], b_0)
 end
 
-#PRINTING ENERGY VALUES DUE TO FERROMAGNETIC BLOCKS(using makie)
-aspect = (10, 10, 5)
-perspectiveness = 0.5
-fig = Figure(; resolution=(1200, 1200))
-ax = Axis3(fig[1, 1]; aspect, perspectiveness)
-quiver!(ax, x_pos_sg, y_pos_sg, z_pos_sg, b_block_x, b_block_y, b_block_z)
-#quiver!(ax, x_pos_fm, y_pos_fm, z_pos_fm, x_dir_fm, y_dir_fm, z_dir_fm, color= :red)
-display(fig)
-#Makie.save(".png", fig)
+#PRINTING ENERGY VALUES DUE TO FERROMAGNETIC BLOCKS
+scatter!(x_pos_sg, y_pos_sg, z_pos_sg, markersize=b_block_x, aspect_ratio=:equal, legend=false)
