@@ -143,6 +143,6 @@ end
 block_energy_sg = vec(block_energy_sg)
 
 #PRINTING ENERGY VALUES DUE TO FERROMAGNETIC BLOCKS
-scatter(x_pos_sg, y_pos_sg, z_pos_sg, markersize=block_energy_sg, aspect_ratio=:equal, legend=false)
-#scatter(x_pos_fm, y_pos_fm, z_pos_fm)
+scatter!(x_pos_sg, y_pos_sg, z_pos_sg, markersize=block_energy_sg, aspect_ratio=:equal, legend=false)
+scatter!(x_pos_fm, y_pos_fm, z_pos_fm)
 #histogram(block_energy_sg)
