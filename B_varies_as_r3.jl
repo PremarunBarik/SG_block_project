@@ -97,8 +97,13 @@ end
 b_block_x = vec(zeros(N_sg, 1))
 
 for i in 1:N_sg
-  b_block_x[i] = magnetic_field_block(block_center_x, block_center_y, block_center_z, x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], b_0)
+  for j in 1:N_fm
+    b_block_x[i] += magnetic_field_block(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], b_0)
+  end
 end
 
+energy_block .= x_dir_sg.*b_block_x
+
 #PRINTING ENERGY VALUES DUE TO FERROMAGNETIC BLOCKS
-scatter!(x_pos_sg, y_pos_sg, z_pos_sg, markersize=b_block_x, aspect_ratio=:equal, legend=false)
+#scatter(x_pos_sg, y_pos_sg, z_pos_sg, markersize=energy_block, aspect_ratio=:equal, legend=false)
+histogram(energy_block)
