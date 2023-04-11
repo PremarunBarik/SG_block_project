@@ -1,13 +1,13 @@
 using Random, Plots
 
-mx = collect(0:0.01:3)
+mx = collect(0:0.01:5)
 N = length(mx)
-a = 1/10
-alpha = 7
+a = 1
+alpha = 2*pi
 function RKKY_J(x_1, x_2, a, alpha)
-         J_0 = (a^2)*alpha
+         J_0 = 1
            #distance between spins in terms of near neighbour distance
-         r_ij = sqrt((x_1-x_2)^2 )/a
+         r_ij = sqrt((x_1-x_2)^2 )
          term_1 = cos(alpha*r_ij)/r_ij^3
            term_2 = sin(alpha*r_ij)/(alpha*(r_ij)^4)
              J = J_0*(term_1-term_2)
@@ -22,6 +22,8 @@ mx = vec(mx)
 interac = vec(interac)
 
 plot(mx, interac)
+#histogram(interac)
+ylims!(-2,2)
 #open("RKKY_J_value_alpha7.0.txt", "w") do io 					#creating a file to save data
 #for i in 1:N
 #	println(io,i,"\t",interac[i],"\t",mx[i])
