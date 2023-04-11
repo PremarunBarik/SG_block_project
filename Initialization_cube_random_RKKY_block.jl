@@ -1,4 +1,4 @@
-using GLMakie, Random, LinearAlgebra
+using Plots, Random, LinearAlgebra
 
 rng = MersenneTwister(7895)
 
@@ -145,20 +145,30 @@ function dumbell_energy(x_fm, y_fm, z_fm, x_sg, y_sg, z_sg, s_sg_x, s_sg_y, s_sg
   E = E_0*(term_1 + term_2 + term_3 + term_4)
 end
 
+function magnetic_field_block(x_0, y_0, z_0, x_r, y_r, z_r)              #COSIDERING MAGNETIC FIELD VARIES AS 1/r^3
+  dipole_moment = 5
+  r_ij = sqrt((x_r - x_0)^2 + (y_r - y_0)^2 + (z_r - z_0)^2)
+  B = dipole_moment/(r_ij^3)
+
+return B
+end
+
+#MAGNETIC FIELD DUE TO BLOCKS
+b_block_x = vec(zeros(N_sg, 1))                                         #CONSIDERING MAGNETIC FIELD VARIES AS 1/r^3
 block_energy_sg = zeros(N_sg, 1)
 
 for i in 1:N_sg                       #for loop for all the spin glass materials
-  for j in 1:N_fm                    #for loop for all the ferromagnetic dumbells
-    block_energy_sg[i] += dumbell_energy(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_dir_sg[i], y_dir_sg[i], z_dir_sg[i], x_dir_fm[j], y_dir_fm[j], z_dir_fm[j])
+  for j in 1:N_fm                     #for loop for all the ferromagnetic dumbells
+    #block_energy_sg[i] += dumbell_energy(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_dir_sg[i], y_dir_sg[i], z_dir_sg[i], x_dir_fm[j], y_dir_fm[j], z_dir_fm[j])          #ENERGY TERM COSIDERING DUMBELL MODEL
+    b_block_x[i] += magnetic_field_block(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i])                                                                                   #MAGNETIC FIELD CONSIDERING IT VARIES AS 1/r^3
   end
 end
 
+block_energy_sg .= x_dir_sg.*b_block_x          #MAGNETIC ENERGY CALCULATION COSIDERING MAGNETIC FIELD VARIES AS 1/r^3
 block_energy_sg = vec(block_energy_sg)
 
-#PRINTING ENERGY VALUES DUE TO FERROMAGNETIC BLOCKS
-aspect = (10, 10, 5)
-perspectiveness = 0.5
-scene = Scene()
-#ax = Axis3(fig[1, 1])
-scatter!(scene, x_pos_sg, y_pos_sg, z_pos_sg, markersize=block_energy_sg, legend=false)
-display(scene)
+#PRINTING HISTOGRAM OF ENERGY VALUES
+#histogram(block_energy_sg)
+
+#PRINTING THE ENERGY VALUES CORRESPONDING TO SPINGLASS POSITION
+scatter(x_pos_sg, y_pos_sg, z_pos_sg, markersize=block_energy_sg, legend=false)
