@@ -24,9 +24,4 @@ interac = vec(interac)
 plot(mx, interac)
 #histogram(interac)
 ylims!(-2,2)
-#open("RKKY_J_value_alpha7.0.txt", "w") do io 					#creating a file to save data
-#for i in 1:N
-#	println(io,i,"\t",interac[i],"\t",mx[i])
-#end
-#end
-#println("--COMPLETE--")
+#xlims!(-2, 2)
