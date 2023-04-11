@@ -74,12 +74,12 @@ N_tot = N_sg+N_fm
 #Makie.save("Initial_spins.png", fig)
 
 #RKKY INETRACTION FUNCTION
-global a = 3                        #near neighbour distance (Considering the matterial to be CuMn, with Mn density to be 10%)
-global alpha =  15                  #2K_f*a the periodicity of RKKY
+global a = 1                        #near neighbour distance (Considering the matterial to be CuMn, with Mn density to be 10%)
+global alpha =  pi                  #2K_f*a the periodicity of RKKY
 
 function RKKY_J(x_1, y_1, z_1, x_2, y_2, z_2, a, alpha)
-  J_0 = 1/1000
-  r_ij = sqrt((x_1-x_2)^2 + (y_1-y_2)^2 + (z_1-z_2)^2)/a            #distance between spins in terms of near neighbour distance
+  J_0 = 1
+  r_ij = sqrt((x_1-x_2)^2 + (y_1-y_2)^2 + (z_1-z_2)^2)          #distance between spins in terms of near neighbour distance
   term_1 = cos(alpha*r_ij)/r_ij^3
   term_2 = sin(alpha*r_ij)/(alpha*(r_ij)^4)
   J = J_0*(term_1-term_2)
@@ -106,7 +106,7 @@ for i in 1:N_sg
         if i==j
           interac_j[i,j] = 0
         else
-          interac_j[i,j] = RKKY_dummy(x_pos_sg[i],y_pos_sg[i],z_pos_sg[i],x_pos_sg[j],y_pos_sg[j],z_pos_sg[j], omega, b)
+          interac_j[i,j] = RKKY_J(x_pos_sg[i],y_pos_sg[i],z_pos_sg[i],x_pos_sg[j],y_pos_sg[j],z_pos_sg[j], a, alpha)
         end
     end
 end
@@ -116,4 +116,6 @@ dist_j = reshape(interac_j, (N_sg*N_sg, 1))
 histogram(dist_j)
 xlabel!("J values")
 ylabel!("population")
+xlims!(-0.25,0.25)
+#ylims!(0,100)
 #savefig("histogram_j.png")
