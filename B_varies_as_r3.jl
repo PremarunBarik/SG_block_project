@@ -93,17 +93,42 @@ function magnetic_field_block(x_0, y_0, z_0, x_r, y_r, z_r, b_0)
   return B
 end
 
+#INTERACTION DUE TO FERROMAGNETIC BLOCKS
+function dumbell_energy(x_fm, y_fm, z_fm, x_sg, y_sg, z_sg, s_sg_x, s_sg_y, s_sg_z, s_fm_x, s_fm_y, s_fm_z)
+    E_0 = 0.0001
+    q_sg_plus = 1
+    q_sg_minus = -1
+    q_fm_plus = 5
+    q_fm_minus = -5
+  
+    r_fm_d_plus = sqrt((x_fm+(s_fm_x/2))^2 + (y_fm+(s_fm_y)/2)^2 + (z_fm+(s_fm_z/2))^2)
+    r_fm_d_minus = sqrt((x_fm-(s_fm_x/2))^2 + (y_fm-(s_fm_y)/2)^2 + (z_fm-(s_fm_z/2))^2)
+    r_sg_d_plus = sqrt((x_sg+(s_sg_x/2))^2 + (y_sg+(s_sg_y)/2)^2 + (z_sg+(s_sg_z/2))^2)
+    r_sg_d_minus = sqrt((x_sg-(s_sg_x/2))^2 + (y_sg-(s_sg_y)/2)^2 + (z_fm-(s_sg_z/2))^2)
+  
+    term_1 = q_fm_plus*q_sg_plus/sqrt((r_fm_d_plus-r_sg_d_plus)^2)
+    term_2 = q_fm_plus*q_sg_minus/sqrt((r_fm_d_plus-r_sg_d_minus)^2)
+    term_3 = q_fm_minus*q_sg_minus/sqrt((r_fm_d_minus-r_sg_d_minus)^2)
+    term_4 = q_fm_minus*q_sg_plus/sqrt((r_fm_d_minus-r_sg_d_plus)^2)
+  
+    E = E_0*(term_1 + term_2 + term_3 + term_4)
+  end
+
 #MAGNETIC FIELD DUE TO BLOCKS
-b_block_x = vec(zeros(N_sg, 1))
+b_block_x = vec(zeros(N_sg, 1)) 
+block_energy_sg = vec(zeros(N_sg, 1))
 
 for i in 1:N_sg
   for j in 1:N_fm
-    b_block_x[i] += magnetic_field_block(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], b_0)
-  end
+    #block_energy_sg[i] += dumbell_energy(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_dir_sg[i], y_dir_sg[i], z_dir_sg[i], x_dir_fm[j], y_dir_fm[j], z_dir_fm[j])
+    b_block_x[i] += magnetic_field_block(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i])                                                                                   #MAGNETIC FIELD CONSIDERING IT VARIES AS 1/r^3
+end
 end
 
-energy_block .= x_dir_sg.*b_block_x
+block_energy_sg .= x_dir_sg.*b_block_x          #MAGNETIC ENERGY CALCULATION COSIDERING MAGNETIC FIELD VARIES AS 1/r^3
+block_energy_sg = vec(block_energy_sg)
 
 #PRINTING ENERGY VALUES DUE TO FERROMAGNETIC BLOCKS
-#scatter(x_pos_sg, y_pos_sg, z_pos_sg, markersize=energy_block, aspect_ratio=:equal, legend=false)
-histogram(energy_block)
+#scatter(x_pos_sg, y_pos_sg, z_pos_sg, markersize=b_block_x, aspect_ratio=:equal, legend=false)
+#scatter(x_pos_fm, y_pos_fm, z_pos_fm)
+histogram(block_energy_sg)
