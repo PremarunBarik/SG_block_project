@@ -1,7 +1,7 @@
 using Plots
 
 r = collect(0:0.001:1)
-omega = 5.39602
+omega = 2.04279
 
 function ro(omega, r)
   j_0 = sin(omega*r)/(omega*r)
@@ -18,7 +18,7 @@ y = vec(zeros(length(r),1))
   
 y .= ro.(omega, r)
 
-plot(r, y, legend="omega=5.39602")
+plot(r, y, label = "omega: 2.04279")
 
-savefig("myplot_2.png")
+savefig("myplot_1.png")
   
