@@ -2,6 +2,9 @@ using Plots, Random, LinearAlgebra
 
 rng = MersenneTwister(4321)
 
+#UMBER OF REPLICAS
+replica_num = 10
+
 #VOLUME OF THE SPACE USED
 L_x = 10
 L_y = 10
@@ -10,7 +13,7 @@ L_z = 3
 V = L_x*L_y*L_z
 
 #PERCENTAGE AND NUMBER OF UNIT CELL
-Lattice_const = 1/10
+Lattice_const = 1
 Unit_cell_along_x = convert(Int64, trunc(L_x/Lattice_const))
 Unit_cell_along_y = convert(Int64, trunc(L_y/Lattice_const))
 Unit_cell_along_z = convert(Int64, trunc(L_z/Lattice_const))
@@ -24,32 +27,40 @@ x_pos_unit_cell_centre = Lattice_const/2
 y_pos_unit_cell_centre = Lattice_const/2 
 z_pos_unit_cell_centre = Lattice_const/2
 
-#UNIT CELL REFERENCE OF IMPUTITY POSITIONS
-global rand_int = rand(0:(Unit_cell_num - 1), Imp_num)
-global unique_int = unique(rand_int)
+#UNIT CELL REFERENCE OF IMPURITY 
+Unit_cell_ref_of_imp = zeros(Imp_num, replica_num)
 
-while length(unique_int) < Imp_num
-    global rand_int = rand(1:(Unit_cell_num - 1), (Imp_num-length(unique_int))) 
-    global unique_int = vcat(unique_int, unique(rand_int))
+for i in 1:replica_num
+  #UNIT CELL REFERENCE OF IMPUTITY POSITIONS
+  global rand_int = rand(0:(Unit_cell_num - 1), Imp_num)
+  global unique_int = unique(rand_int)
+
+  while length(unique_int) < Imp_num
+      global rand_int = rand(1:(Unit_cell_num - 1), (Imp_num-length(unique_int))) 
+      global unique_int = vcat(unique_int, unique(rand_int))
+  end
+
+  Unit_cell_ref_of_imp[:,i] = unique_int
 end
 
-Unit_cell_ref_of_imp = unique_int
 
 #POSITION OF IMPURITIES
-x_pos_sg = vec(zeros(Imp_num, 1))
-y_pos_sg = vec(zeros(Imp_num, 1))
-z_pos_sg = vec(zeros(Imp_num, 1))
+x_pos_sg = zeros(Imp_num, replica_num)
+y_pos_sg = zeros(Imp_num, replica_num)
+z_pos_sg = zeros(Imp_num, replica_num)
 
 #POSITION OF BASE LATTICE 
-x_pos_base = vec(zeros(Unit_cell_num, 1))
-y_pos_base = vec(zeros(Unit_cell_num, 1))
-z_pos_base = vec(zeros(Unit_cell_num, 1))
+x_pos_base = zeros(Unit_cell_num, 1)
+y_pos_base = zeros(Unit_cell_num, 1)
+z_pos_base = zeros(Unit_cell_num, 1)
 
 #CHANGE FROM CELL REFERENCE TO LATTICE POSITION
-for i in 1:Imp_num
-    x_pos_sg[i] = trunc(((Unit_cell_ref_of_imp[i] % (Unit_cell_along_x * Unit_cell_along_y))-1) / Unit_cell_along_x)*Lattice_const + x_pos_unit_cell_centre
-    y_pos_sg[i] = (((Unit_cell_ref_of_imp[i] % (Unit_cell_along_y*Unit_cell_along_x)) - 1) % Unit_cell_along_y)*Lattice_const + y_pos_unit_cell_centre
-    z_pos_sg[i] = trunc((Unit_cell_ref_of_imp[i]-1) / (Unit_cell_along_y *Unit_cell_along_x))*Lattice_const + z_pos_unit_cell_centre
+for j in 1:replica_num
+  for i in 1:Imp_num
+    x_pos_sg[i,j] = trunc(((Unit_cell_ref_of_imp[i,j] % (Unit_cell_along_x * Unit_cell_along_y))-1) / Unit_cell_along_x)*Lattice_const + x_pos_unit_cell_centre
+    y_pos_sg[i,j] = (((Unit_cell_ref_of_imp[i,j] % (Unit_cell_along_y*Unit_cell_along_x)) - 1) % Unit_cell_along_y)*Lattice_const + y_pos_unit_cell_centre
+    z_pos_sg[i,j] = trunc((Unit_cell_ref_of_imp[i,j]-1) / (Unit_cell_along_y *Unit_cell_along_x))*Lattice_const + z_pos_unit_cell_centre
+  end
 end
 
 for i in 1:Unit_cell_num
@@ -61,21 +72,19 @@ end
 #IMPURITY SPIN VECTORS
 N_sg = Imp_num                                              #CHANGING THE NOTATION FROM IMPURITY TO SPIN GLASS
 
-x_dir_sg = zeros(N_sg,1)
-y_dir_sg = zeros(N_sg,1)
-z_dir_sg = zeros(N_sg,1)
+x_dir_sg = zeros(N_sg, replica_num)
+y_dir_sg = zeros(N_sg, replica_num)
+z_dir_sg = zeros(N_sg, replica_num)
 
-for i in 1:N_sg
-  theta = rand(rng, Float64)*2*pi
-  phi = rand(rng,Float64)*pi
-  x_dir_sg[i] = sin(theta)cos(phi)
-  y_dir_sg[i] = sin(theta)sin(phi)
-  z_dir_sg[i] = cos(theta)
+for j in 1: replica_num
+  for i in 1:N_sg
+    theta = rand(rng, Float64)*2*pi
+    phi = rand(rng,Float64)*pi
+    x_dir_sg[i,j] = sin(theta)cos(phi)
+    y_dir_sg[i,j] = sin(theta)sin(phi)
+    z_dir_sg[i,j] = cos(theta)
+  end
 end
-
-x_dir_sg = vec(x_dir_sg)
-y_dir_sg = vec(y_dir_sg)
-z_dir_sg = vec(z_dir_sg)
 
 #INITIALIZATION OF THE FM LATTICE
 x_pos_fm = [1.5,5.5,9.5,]
@@ -92,9 +101,9 @@ y_pos_fm = repeat(y_pos_fm, outer=(Lx_fm,1))
 y_pos_fm = repeat(y_pos_fm, outer=(Lz_fm,1))
 z_pos_fm = repeat(z_pos_fm, inner=(Lx_fm*Ly_fm,1))
 
-x_pos_fm = vec(x_pos_fm)
-y_pos_fm = vec(y_pos_fm)
-z_pos_fm = vec(z_pos_fm)
+x_pos_fm = repeat(x_pos_fm, 1, replica_num)
+y_pos_fm = repeat(y_pos_fm, 1, replica_num)
+z_pos_fm = repeat(z_pos_fm, 1, replica_num)
   
 #NUMBER OF FERROMAGNETIC SPINS
 N_fm = Lx_fm*Ly_fm*Lz_fm
@@ -103,6 +112,10 @@ N_fm = Lx_fm*Ly_fm*Lz_fm
 x_dir_fm = Float64[ 5.0 for i in 1:N_fm]
 y_dir_fm = Float64[ 0.0 for i in 1:N_fm]
 z_dir_fm = Float64[ 0.0 for i in 1:N_fm]
+
+x_dir_fm = repeat(x_dir_fm, 1, replica_num)
+y_dir_fm = repeat(y_dir_fm, 1, replica_num)
+z_dir_fm = repeat(z_dir_fm, 1, replica_num)
 
 #NUMBER OF TOTAL SPINS
 N_tot = N_sg+N_fm
@@ -119,8 +132,18 @@ N_tot = N_sg+N_fm
 #display(fig)
 #Makie.save("Initial_spins.png", fig)
 
-#RKKY INETRACTION J VALUE
+#PRINTING INITIAL CONFIG OF ALL REPLICAS USING PLOTS 
 
+for j in 1:replica_num
+  scatter!( x_pos_sg[:,j], y_pos_sg[:,j], z_pos_sg[:,j], markersize=3, color= :red)
+  display(scatter!( x_pos_base, y_pos_base, z_pos_base, markersize=1, color= :cyan))
+end
+
+
+#################################################################################################################################################################
+
+
+#RKKY INETRACTION J VALUE
 global a = Lattice_const                               #near neighbour distance (Considering the matterial to be CuMn, with Mn density to be 10%)
 global k_f = pi/a                         #2K_f*a the periodicity of RKKY
 global alpha = 2*k_f*a
@@ -133,6 +156,19 @@ function RKKY_J(x_1, y_1, z_1, x_2, y_2, z_2, a, alpha)
   J = J_0*(term_1-term_2)
   return J
 end
+
+function RKKY_EA_NNN(x_1, y_1, z_1, x_2, y_2, z_2, a)
+  r_ij = sqrt((x_1-x_2)^2 + (y_1-y_2)^2 + (z_1-z_2)^2)/a            #distance between spins in terms of near neighbour distance
+  if r_ij<2a
+    J = 1
+  elseif r_ij>2a && r_ij<3a
+    J = -1
+  else
+    J = 0
+  end
+  return J
+end
+
 
 #DUMMY RKKY INTERACTION FUNCTION
 global omega = pi                          #pediodicity
@@ -154,18 +190,21 @@ for i in 1:N_sg
         if i==j
             interac_j[i,j]=0
         else
-            interac_j[i,j] = RKKY_J(x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_pos_sg[j], y_pos_sg[j], z_pos_sg[j], a, alpha)
+            interac_j[i,j] = RKKY_EA_NNN(x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_pos_sg[j], y_pos_sg[j], z_pos_sg[j], a)
         end
     end
 end
 
 
 #plot(length_dist, interac_dist, label = "J distribution")
-j_dist = reshape(interac_j, (N_sg*N_sg,1))
-display(histogram(j_dist))
+#j_dist = reshape(interac_j, (N_sg*N_sg,1))
+#display(histogram(j_dist))
 #ylabel!("Interaction coefficient (J)")
 #xlims!(0,100)
 #ylims!(-0.5,1)
+
+####################################################################################################################################################################
+
 
 function dumbell_energy(x_fm, y_fm, z_fm, x_sg, y_sg, z_sg, s_sg_x, s_sg_y, s_sg_z, s_fm_x, s_fm_y, s_fm_z)
   E_0 = 1
