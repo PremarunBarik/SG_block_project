@@ -32,7 +32,7 @@ Unit_cell_ref_of_imp = zeros(Imp_num, replica_num)
 
 for i in 1:replica_num
   #UNIT CELL REFERENCE OF IMPUTITY POSITIONS
-  global rand_int = rand(0:(Unit_cell_num - 1), Imp_num)
+  global rand_int = rand(1:(Unit_cell_num - 1), Imp_num)
   global unique_int = unique(rand_int)
 
   while length(unique_int) < Imp_num
@@ -72,19 +72,23 @@ end
 #IMPURITY SPIN VECTORS
 N_sg = Imp_num                                              #CHANGING THE NOTATION FROM IMPURITY TO SPIN GLASS
 
-x_dir_sg = zeros(N_sg, replica_num)
-y_dir_sg = zeros(N_sg, replica_num)
-z_dir_sg = zeros(N_sg, replica_num)
+x_dir_sg = zeros(N_sg, 1)
+y_dir_sg = zeros(N_sg, 1)
+z_dir_sg = zeros(N_sg, 1)
 
-for j in 1: replica_num
-  for i in 1:N_sg
+
+for i in 1:N_sg
     theta = rand(rng, Float64)*2*pi
     phi = rand(rng,Float64)*pi
-    x_dir_sg[i,j] = sin(theta)cos(phi)
-    y_dir_sg[i,j] = sin(theta)sin(phi)
-    z_dir_sg[i,j] = cos(theta)
-  end
+    x_dir_sg[i] = sin(theta)cos(phi)
+    y_dir_sg[i] = sin(theta)sin(phi)
+    z_dir_sg[i] = cos(theta)
 end
+
+x_dir_sg = repeat(x_dir_sg, 1, replica_num)
+y_dir_sg = repeat(y_dir_sg, 1, replica_num)
+z_dir_sg = repeat(z_dir_sg, 1, replica_num)
+
 
 #INITIALIZATION OF THE FM LATTICE
 x_pos_fm = [1.5,5.5,9.5,]
@@ -134,13 +138,13 @@ N_tot = N_sg+N_fm
 
 #PRINTING INITIAL CONFIG OF ALL REPLICAS USING PLOTS 
 
-for j in 1:replica_num
-  scatter!( x_pos_sg[:,j], y_pos_sg[:,j], z_pos_sg[:,j], markersize=3, color= :red)
-  display(scatter!( x_pos_base, y_pos_base, z_pos_base, markersize=1, color= :cyan))
-end
+#for j in 1:replica_num
+#  scatter!( x_pos_sg[:,j], y_pos_sg[:,j], z_pos_sg[:,j], markersize=3, color= :red)
+#  display(scatter!( x_pos_base, y_pos_base, z_pos_base, markersize=1, color= :cyan))
+#end
 
 
-#################################################################################################################################################################
+#####################################################################################################################################################################################
 
 
 #RKKY INETRACTION J VALUE
@@ -157,11 +161,11 @@ function RKKY_J(x_1, y_1, z_1, x_2, y_2, z_2, a, alpha)
   return J
 end
 
-function RKKY_EA_NNN(x_1, y_1, z_1, x_2, y_2, z_2, a)
-  r_ij = sqrt((x_1-x_2)^2 + (y_1-y_2)^2 + (z_1-z_2)^2)/a            #distance between spins in terms of near neighbour distance
-  if r_ij<2a
+function RKKY_EA_NNN_fm_afm(x_1, y_1, z_1, x_2, y_2, z_2, a)      #NN FERROMAGNETIC AND NNN ANTIFEROMAGNETIC
+  r_ij = sqrt((x_1-x_2)^2 + (y_1-y_2)^2 + (z_1-z_2)^2)            #distance between spins in terms of near neighbour distance
+  if r_ij<(2*a)
     J = 1
-  elseif r_ij>2a && r_ij<3a
+  elseif r_ij>(2*a) && r_ij<(3*a)
     J = -1
   else
     J = 0
@@ -169,6 +173,15 @@ function RKKY_EA_NNN(x_1, y_1, z_1, x_2, y_2, z_2, a)
   return J
 end
 
+function RKKY_EA_NNN_random(x_1, y_1, z_1, x_2, y_2, z_2, a, rng)
+  r_ij = sqrt((x_1-x_2)^2 + (y_1-y_2)^2 + (z_1-z_2)^2)
+  if r_ij<(3*a)
+    J = (-1)^rand(rng, Int64)
+  else
+    J = 0
+  end
+  return J
+end
 
 #DUMMY RKKY INTERACTION FUNCTION
 global omega = pi                          #pediodicity
@@ -183,31 +196,32 @@ function RKKY_dummy(x_1, y_1, z_1, x_2, y_2, z_2, omega, b)
 end
 
 #RKKY INTERACTION MATRIX
-interac_j = zeros(N_sg,N_sg)
+interac_j = zeros(N_sg,N_sg,replica_num)
 
-for i in 1:N_sg
+for k in 1:replica_num
+  for i in 1:N_sg
     for j in 1:N_sg
         if i==j
-            interac_j[i,j]=0
+            interac_j[i,j,k]=0
         else
-            interac_j[i,j] = RKKY_EA_NNN(x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_pos_sg[j], y_pos_sg[j], z_pos_sg[j], a)
+            interac_j[i,j,k] = RKKY_EA_NNN_fm_afm(x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_pos_sg[j], y_pos_sg[j], z_pos_sg[j], a)
         end
     end
+  end
 end
 
-
 #plot(length_dist, interac_dist, label = "J distribution")
-#j_dist = reshape(interac_j, (N_sg*N_sg,1))
+#j_dist = reshape(interac_j[:,:,5], (N_sg*N_sg,1))
 #display(histogram(j_dist))
 #ylabel!("Interaction coefficient (J)")
 #xlims!(0,100)
 #ylims!(-0.5,1)
 
-####################################################################################################################################################################
+####################################################################################################################################################################################
 
 
 function dumbell_energy(x_fm, y_fm, z_fm, x_sg, y_sg, z_sg, s_sg_x, s_sg_y, s_sg_z, s_fm_x, s_fm_y, s_fm_z)
-  E_0 = 1
+  E_0 = 1/10
   q_sg_plus = 1
   q_sg_minus = -1
   q_fm_plus = 5
@@ -241,19 +255,30 @@ function dumbell_energy(x_fm, y_fm, z_fm, x_sg, y_sg, z_sg, s_sg_x, s_sg_y, s_sg
 end
 
 #MAGNETIC FIELD DUE TO BLOCKS
-block_energy_sg = zeros(N_sg, 1)
+block_energy_sg = zeros(N_sg, replica_num)
 
-for i in 1:N_sg                       #for loop for all the spin glass materials
-  for j in 1:N_fm                     #for loop for all the ferromagnetic dumbells
-    block_energy_sg[i] += dumbell_energy(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i], y_pos_sg[i], z_pos_sg[i], x_dir_sg[i], y_dir_sg[i], z_dir_sg[i], x_dir_fm[j], y_dir_fm[j], z_dir_fm[j])          #ENERGY TERM COSIDERING DUMBELL MODEL
+for k in 1:replica_num
+  for i in 1:N_sg                       #for loop for all the spin glass materials
+    for j in 1:N_fm                     #for loop for all the ferromagnetic dumbells
+      block_energy_sg[i,k] += dumbell_energy(x_pos_fm[j], y_pos_fm[j], z_pos_fm[j], x_pos_sg[i,k], y_pos_sg[i,k], z_pos_sg[i,k], x_dir_sg[i], y_dir_sg[i], z_dir_sg[i], x_dir_fm[j], y_dir_fm[j], z_dir_fm[j])          #ENERGY TERM COSIDERING DUMBELL MODEL
+    end
   end
 end
 
-block_energy_sg = vec(block_energy_sg)
 
 #PRINTING HISTOGRAM OF ENERGY VALUES
-#histogram(block_energy_sg)
+#histogram(block_energy_sg[:,5])
 
 #PRINTING THE ENERGY VALUES CORRESPONDING TO SPINGLASS POSITION
-#scatter!(x_pos_sg, y_pos_sg, z_pos_sg, markersize=block_energy_sg, legend=false)
-#scatter!(x_pos_fm, y_pos_fm, z_pos_fm)
+#for i in 1:replica_num
+#  display(scatter(x_pos_sg[:,i], y_pos_sg[:,i], z_pos_sg[:,i], markersize=block_energy_sg[:,i], legend=false))
+#end
+#scatter(x_pos_fm, y_pos_fm, z_pos_fm)
+
+#################################################################################################################################################################################
+
+MONTE CARLO FUNCTION
+function one_MC(replica_index, N_sg, )
+  rand_pos = rand(rng, (1:N_sg))
+  interac_energy = x_pos_sg[:,replica_index]'*
+
