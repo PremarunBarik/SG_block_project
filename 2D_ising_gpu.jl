@@ -168,9 +168,9 @@ function one_MC(MC_index, Temp_index, replica_num)
         trans_rate[1,replica_index] = exp(-del_energy[1,replica_index]/Temp_values[Temp_index])
         flipit = sign(rand_num_flip[MC_index,replica_index]-trans_rate[1,replica_index])
 
-        x_dir_sg[rand_pos[MC_index, replica_index]] = flipit*x_dir_sg[rand_pos[MC_index, replica_index]]
-        y_dir_sg[rand_pos[MC_index, replica_index]] = flipit*y_dir_sg[rand_pos[MC_index, replica_index]]
-        z_dir_sg[rand_pos[MC_index, replica_index]] = flipit*z_dir_sg[rand_pos[MC_index, replica_index]]
+        x_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*x_dir_sg[rand_pos[MC_index, replica_index],replica_index]
+        y_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*y_dir_sg[rand_pos[MC_index, replica_index],replica_index]
+        z_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*z_dir_sg[rand_pos[MC_index, replica_index],replica_index]
     end
 end
 
