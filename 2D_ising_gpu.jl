@@ -10,8 +10,8 @@ MC_steps = 1000
 MC_burns = 1000
 
 #TEMPERATURE VALUES
-min_Temp = 0.1
-max_Temp = 3.6
+min_Temp = 1.5
+max_Temp = 3.0
 Temp_step = 20
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
@@ -29,7 +29,7 @@ x_dir_sg = CuArray(zeros(N_sg,1))
 y_dir_sg = CuArray(zeros(N_sg,1))
 z_dir_sg = CuArray(zeros(N_sg,1))
 
-for i in 1:N_sg
+@CUDA.allowscalar for i in 1:N_sg
     theta = pi/2
     phi = 0
     x_dir_sg[i] = sin(theta)cos(phi)
@@ -48,7 +48,7 @@ z_dir_sg = repeat(z_dir_sg, 1, replica_num)
 x_pos_sg = CuArray(zeros(N_sg, 1))
 y_pos_sg = CuArray(zeros(N_sg, 1))
 
-for i in 1:N_sg
+@CUDA.allowscalar for i in 1:N_sg
     x_pos_sg[i] = trunc((i-1)/n_x)+1             #10th position
     y_pos_sg[i] = ((i-1)%n_y)+1                     #1th position
 end
@@ -61,8 +61,8 @@ y_pos_sg = repeat(y_pos_sg, 1, replica_num)
 #ISING INTERACTION MATRIX WITH NN INTERACTION
 J_NN = CuArray(zeros(N_sg,N_sg, replica_num))
 
-for i in 1:N_sg                             #loop over all the spin ELEMENTS
-        for k in 1:replica_num
+@CUDA.allowscalar for i in 1:N_sg                             #loop over all the spin ELEMENTS
+        @CUDA.allowscalar for k in 1:replica_num
             if x_pos_sg[i,k]%n_x == 0
                 r_s =  (x_pos_sg[i,k]-n_x)*n_x + y_pos_sg[i,k]
             else
@@ -106,7 +106,7 @@ energy_tot_NN = CuArray(zeros(N_sg, replica_num))
 
 #COMPUTE TOTAL ENERGY OF THE SYSTEM
 function compute_tot_energy_spin_glass(replica_num)
-    for i in 1:replica_num
+    @CUDA.allowscalar for i in 1:replica_num
         replica_index = i
         
         energy_x_NN = x_dir_sg[:,replica_index]'.*J_NN[:,:,replica_index]
@@ -145,7 +145,7 @@ del_energy = CuArray(zeros(1, replica_num))
 function compute_del_energy_spin_glass(MC_index, replica_num)
     compute_tot_energy_spin_glass(replica_num)
 
-    for i in 1:replica_num
+    @CUDA.allowscalar for i in 1:replica_num
         replica_index = i 
         del_energy[1,replica_index] = 2*energy_tot_NN[rand_pos[MC_index,replica_index],replica_index]
     end
@@ -163,7 +163,7 @@ trans_rate = CuArray(zeros(1, replica_num))
 function one_MC(MC_index, Temp_index, replica_num)
     compute_del_energy_spin_glass(MC_index, replica_num)
 
-    for i in 1:replica_num
+    @CUDA.allowscalar for i in 1:replica_num
         replica_index = i 
         trans_rate[1,replica_index] = exp(-del_energy[1,replica_index]/Temp_values[Temp_index])
         flipit = sign(rand_num_flip[MC_index,replica_index]-trans_rate[1,replica_index])
@@ -183,7 +183,7 @@ energy = CuArray(zeros(length(Temp_values), 1))
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MC BURN STEPS
-for i in 1:MC_burns
+@CUDA.allowscalar for i in 1:MC_burns
   global MC_index = i
   global Temp_index = 1
   one_MC(MC_index, Temp_index, replica_num)
@@ -192,7 +192,7 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MAIN BODY
-for i in 1:length(Temp_values)                              #TEMPERATURE LOOP 
+@CUDA.allowscalar for i in 1:length(Temp_values)                              #TEMPERATURE LOOP 
     
     global Temp_index = i 
     #-----------------------------------------------------------#
@@ -204,7 +204,7 @@ for i in 1:length(Temp_values)                              #TEMPERATURE LOOP
     global mag = 0.0
     global en = 0.0
     #-----------------------------------------------------------#
-    for j in 1:MC_steps
+    @CUDA.allowscalar for j in 1:MC_steps
         global MC_index = j
         one_MC(MC_index, Temp_index, replica_num)
 
@@ -228,4 +228,4 @@ end
 println("--COMPLETE--")
 
 display(plot(Temp_values, magnetisation))
-savefig("2D_Ising_gpu_magVsTemp.png")
+savefig("2D_Ising_gpu_magVsTemp_10_10.png")
