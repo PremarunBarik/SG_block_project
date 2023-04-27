@@ -3,7 +3,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 rng = MersenneTwister(1234)
 
 #NUMBER OF REPLICAS 
-replica_num = 2
+replica_num = 10
 
 #NUMBER OF MC MC STEPS 
 MC_steps = 1000
@@ -12,15 +12,15 @@ MC_burns = 1000
 #TEMPERATURE VALUES
 min_Temp = 1.5
 max_Temp = 3.0
-Temp_step = 20
+Temp_step = 40
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 3
-n_y = 3
+n_x = 30
+n_y = 5
 
 N_sg = n_x*n_y
 
@@ -113,7 +113,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = i+j                                   #for ising: 1, for spin glas: random
+                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random
             end
         end
     end
@@ -124,23 +124,23 @@ end
 #REPLICA REFERENCE MATRIX OF SPIN ELEMENTS
 spin_rep_ref = zeros(N_sg*replica_num,1)
 
-for i in 1:length(spin_rep_ref)
+for i in eachindex(spin_rep_ref)
     spin_rep_ref[i] = trunc((i-1)/N_sg)*N_sg
 end
 
 #REPLICA REFERENCE MATRIX OF RANDOMLY SELECTED SPIN IN MC_STEP
 rand_rep_ref = zeros(replica_num, 1)
 
-for i in 1:length(rand_rep_ref)
+for i in eachindex(rand_rep_ref)
     rand_rep_ref[i] = (i-1)*N_sg
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #CHANGING ALL THE MATRICES TO CU_ARRAY 
-x_dir_sg = CuArray(x_dir_sg)
-y_dir_sg = CuArray(y_dir_sg)
-z_dir_sg = CuArray(z_dir_sg)
+global x_dir_sg = CuArray(x_dir_sg)
+global y_dir_sg = CuArray(y_dir_sg)
+global z_dir_sg = CuArray(z_dir_sg)
 
 NN_s = CuArray{Int64}(NN_s)
 NN_n = CuArray{Int64}(NN_n)
@@ -155,10 +155,11 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE TOTAL ENERGY
-energy_tot_NN = CuArray(zeros(N_sg*replica_num, 1))
+global energy_tot_NN = CuArray(zeros(N_sg*replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
+#COMPUTE TOTAL ENERGY OF THE SYSTEM
 function compute_tot_energy_spin_glass()
     r_s = (mx_sg.-1).*N_sg .+ NN_s
     r_n = (mx_sg.-1).*N_sg .+ NN_n 
@@ -169,7 +170,7 @@ function compute_tot_energy_spin_glass()
     energy_y_NN = y_dir_sg.*((J_NN[r_s].*y_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_n].*y_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_e].*y_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_w].*y_dir_sg[NN_w .+ spin_rep_ref]))
     energy_z_NN = z_dir_sg.*((J_NN[r_s].*z_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_n].*z_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_e].*z_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_w].*z_dir_sg[NN_w .+ spin_rep_ref]))
 
-    energy_tot_NN = energy_x_NN .+ energy_y_NN .+ energy_z_NN
+    global energy_tot_NN = energy_x_NN .+ energy_y_NN .+ energy_z_NN
 
     return energy_tot_NN
 end
@@ -177,17 +178,17 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE DELTA ENERGY
-del_energy = CuArray(zeros(replica_num, 1))
+global del_energy = CuArray(zeros(replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE THE ENERGY CHANGE OF THE SYSTEM
-function compute_del_energy_spin_glass(MC_index, )
+function compute_del_energy_spin_glass(MC_index)
     compute_tot_energy_spin_glass()
 
-    r = rand_pos[:,MC_index] .+ rand_rep_ref
+    global r = rand_pos[:,MC_index] .+ rand_rep_ref
 
-    del_energy = energy_tot_NN[r]
+    global del_energy = 2*energy_tot_NN[r]
 
     return del_energy
 end
@@ -195,7 +196,7 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE DELTA ENERGY
-trans_rate = CuArray(zeros(replica_num, 1))
+global trans_rate = CuArray(zeros(replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -203,13 +204,75 @@ trans_rate = CuArray(zeros(replica_num, 1))
 function one_MC(MC_index, Temp_index)
     compute_del_energy_spin_glass(MC_index)
 
-    trans_rate = exp.(-del_energy./Temp_values[Temp_index])
+    @CUDA.allowscalar global Temp = Temp_values[Temp_index]
+    global trans_rate = exp.(-del_energy/Temp)
     flipit = sign.(rand_num_flip[:, MC_index] .- trans_rate)
 
-        x_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*x_dir_sg[rand_pos[MC_index, replica_index],replica_index]
-        y_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*y_dir_sg[rand_pos[MC_index, replica_index],replica_index]
-        z_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*z_dir_sg[rand_pos[MC_index, replica_index],replica_index]
-    end
+    global x_dir_sg[r] = flipit.*x_dir_sg[r]
+    global y_dir_sg[r] = flipit.*y_dir_sg[r]
+    global z_dir_sg[r] = flipit.*z_dir_sg[r]
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
+
+#MATRIX FOR STOTING DATA
+magnetisation = zeros(length(Temp_values), 1)
+energy = zeros(length(Temp_values), 1)
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#MAIN BODY
+@CUDA.allowscalar for i in eachindex(Temp_values)                              #TEMPERATURE LOOP 
+    
+    global Temp_index = i 
+
+    #-----------------------------------------------------------#
+    #MATRIX WITH RANDOM INTEGER
+    global rand_pos = CuArray(rand(rng, (1:N_sg), (replica_num, MC_burns)))
+    #MATRIX WITH RANDOM FLOAT NUMBER TO FLIP SPIN
+    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, MC_burns)))
+    #-----------------------------------------------------------#
+
+    #MC BURN STEPS
+    @CUDA.allowscalar for j in 1:MC_burns
+
+        global MC_index = j
+
+        one_MC(MC_index, Temp_index)
+    end
+
+    #-----------------------------------------------------------#
+    #MATRIX WITH RANDOM INTEGER
+    global rand_pos = CuArray(rand(rng, (1:N_sg), (replica_num, MC_steps)))
+    #MATRIX WITH RANDOM FLOAT NUMBER TO FLIP SPIN
+    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, MC_steps)))
+    #-----------------------------------------------------------#
+
+    global mag = 0.0
+    global en = 0.0
+
+    #-----------------------------------------------------------#
+    @CUDA.allowscalar for j in 1:MC_steps
+
+        global MC_index = j
+
+        one_MC(MC_index, Temp_index)
+
+        mag = mag + sum(x_dir_sg)
+    end
+    #-----------------------------------------------------------#
+    magnetisation[Temp_index] = mag/(replica_num*MC_steps*N_sg)
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#SAVING AND PLOTTING DATA
+Temp_values = Array(Temp_values)
+
+#open("2D_ising_gpu_magVsTemp_apprch2_30_30.txt", "w") do io 					#creating a file to save data
+#   for i in 1:length(Temp_values)
+#      println(io,i,"\t",Temp_values[i],"\t",magnetisation[i])
+#   end
+#end
+
+display(plot(Temp_values, magnetisation))
