@@ -6,8 +6,8 @@ rng = MersenneTwister(1234)
 replica_num = 5
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 10000
-MC_burns = 10000
+MC_steps = 1000
+MC_burns = 1000
 
 #TEMPERATURE VALUES
 min_Temp = 1.5
@@ -19,8 +19,8 @@ Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 8
-n_y = 8
+n_x = 30
+n_y = 30
 
 N_sg = n_x*n_y
 
@@ -269,7 +269,7 @@ binder_cumulant = zeros(length(Temp_values), 1)
 
     end
     spin_av_pow2 .= (spin_av_pow2/MC_steps) .^ 2
-    spin_av_pow4 .= (spin_av_pow2/MC_steps)
+    spin_av_pow4 .= (spin_av_pow4/MC_steps)
 
     binder_cumulant[Temp_index] = 1 - (sum(spin_av_pow4)/(3*sum(spin_av_pow2)))
 
@@ -281,10 +281,11 @@ end
 #SAVING AND PLOTTING DATA
 Temp_values = Array(Temp_values)
 
-#open("2D_ising_gpu_magVsTemp_apprch2_30_30.txt", "w") do io 					#creating a file to save data
-#   for i in 1:length(Temp_values)
-#      println(io,i,"\t",Temp_values[i],"\t",magnetisation[i])
-#   end
-#end
+open("2D_ising_gpu_Mag_BC_VsTemp_apprch2_30_30.txt", "w") do io 					#creating a file to save data
+   for i in 1:length(Temp_values)
+      println(io,i,"\t",Temp_values[i],"\t",magnetisation[i],"\t",binder_cumulant[i])
+   end
+end
 
-display(plot(Temp_values, binder_cumulant))
+#display(plot(Temp_values, binder_cumulant))
+
