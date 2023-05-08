@@ -6,8 +6,8 @@ rng = MersenneTwister(1234)
 replica_num = 5
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 1000
-MC_burns = 1000
+MC_steps = 100000
+MC_burns = 100000
 
 #TEMPERATURE VALUES
 min_Temp = 1.5
