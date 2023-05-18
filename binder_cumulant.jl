@@ -3,24 +3,24 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 rng = MersenneTwister(1234)
 
 #NUMBER OF REPLICAS 
-replica_num = 5
+replica_num = 10
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 100000
-MC_burns = 100000
+MC_steps = 5000
+MC_burns = 5000
 
 #TEMPERATURE VALUES
-min_Temp = 1.5
-max_Temp = 3.0
-Temp_step = 30
+min_Temp = 1.7
+max_Temp = 2.7
+Temp_step = 50
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 30
-n_y = 30
+n_x = 10
+n_y = 10
 
 N_sg = n_x*n_y
 
@@ -251,8 +251,9 @@ binder_cumulant = zeros(length(Temp_values), 1)
 
     global mag = 0.0
     global en = 0.0
-    global spin_av_pow2 = CuArray(zeros(1, replica_num))
-    global spin_av_pow4 = CuArray(zeros(1, replica_num))
+    global spin_av_pow2 = zeros(1, replica_num)
+    global spin_av_pow4 = zeros(1, replica_num)
+    global binder_cumulant_replica = zeros(1, replica_num)
 
     #-----------------------------------------------------------#
     @CUDA.allowscalar for j in 1:MC_steps
@@ -262,7 +263,7 @@ binder_cumulant = zeros(length(Temp_values), 1)
         one_MC(MC_index, Temp_index)
 
         mag = mag + sum(x_dir_sg)
-        spin_av_per_replica = CuArray(sum(reshape(x_dir_sg, (N_sg,replica_num)), dims=1)/N_sg)
+        spin_av_per_replica = Array(sum(reshape(x_dir_sg, (N_sg,replica_num)), dims=1)/N_sg)
 
         spin_av_pow2 .= spin_av_pow2 .+ spin_av_per_replica .^2
         spin_av_pow4 .= spin_av_pow4 .+ spin_av_per_replica .^ 4
@@ -271,8 +272,9 @@ binder_cumulant = zeros(length(Temp_values), 1)
     spin_av_pow2 .= (spin_av_pow2/MC_steps) .^ 2
     spin_av_pow4 .= (spin_av_pow4/MC_steps)
 
-    binder_cumulant[Temp_index] = 1 - (sum(spin_av_pow4)/(3*sum(spin_av_pow2)))
+    binder_cumulant_replica .= 1 .- (spin_av_pow4 ./ (3*spin_av_pow2))
 
+    binder_cumulant[Temp_index] = sum(binder_cumulant_replica)/replica_num
     magnetisation[Temp_index] = mag/(replica_num*MC_steps*N_sg)
 end
 
@@ -288,4 +290,3 @@ open("2D_ising_gpu_Mag_BC_VsTemp_apprch2_30_30.txt", "w") do io 					#creating a
 end
 
 #display(plot(Temp_values, binder_cumulant))
-
