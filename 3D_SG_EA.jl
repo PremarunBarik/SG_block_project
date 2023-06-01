@@ -3,7 +3,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 rng = MersenneTwister(1234)
 
 #NUMBER OF REPLICAS 
-replica_num = 2
+replica_num = 100
 
 #NUMBER OF MC MC STEPS 
 MC_steps = 100000
@@ -21,7 +21,7 @@ Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
 #NUMBER OF SPINGLASS ELEMENTS
 n_x = 10
 n_y = 10
-n_z = 2
+n_z = 3
 
 N_sg = n_x*n_y*n_z
 
@@ -38,11 +38,9 @@ for i in 1:N_sg
     z_dir_sg[i] = cos(theta)
 end
 
-
 x_dir_sg = repeat(x_dir_sg, replica_num, 1)
 y_dir_sg = repeat(y_dir_sg, replica_num, 1)
 z_dir_sg = repeat(z_dir_sg, replica_num, 1)
-
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -60,6 +58,10 @@ for i in 1:N_sg
     z_pos_sg[i] = trunc((i-1)/(n_x*n_y)) +1                     #100th position
 end
 
+x_pos_sg = repeat(x_pos_sg, replica_num, 1)
+y_pos_sg = repeat(y_pos_sg, replica_num, 1)
+z_pos_sg = repeat(z_pos_sg, replica_num, 1)
+
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #INITIALIZATION OF FERROMAGNETIC BLOCKS
@@ -76,11 +78,17 @@ mx_fm = CuArray(collect(1:N_fm))
 #REFERENCE POSITION OF THE BLOCKS
 x_pos_fm = zeros(N_fm, 1)
 y_pos_fm = zeros(N_fm, 1)
+z_pos_fm = fill(4, N_fm) 
 
 for i in 1:N_fm
     x_pos_fm[i] = trunc((i-1)/x_num)*(x_dist) + (x_dist/2)             #10th position
     y_pos_fm[i] = ((i-1)%y_num)*(y_dist) + (y_dist/2)                    #1th position
 end
+
+#MAGNETIC ORIENTATION OF FERROMAGNETIC BLOCKS
+x_dir_fm = fill(1, N_fm)
+y_dir_fm = fill(0, N_fm)
+z_dir_fm = fill(0, N_fm)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -284,6 +292,18 @@ global x_dir_sg = CuArray(x_dir_sg)
 global y_dir_sg = CuArray(y_dir_sg)
 global z_dir_sg = CuArray(z_dir_sg)
 
+global x_pos_sg = CuArray(x_pos_sg)
+global y_pos_sg = CuArray(y_pos_sg)
+global z_pos_sg = CuArray(z_pos_sg)
+
+global x_dir_fm = CuArray(x_dir_fm)
+global y_dir_fm = CuArray(y_dir_fm)
+global z_dir_fm = CuArray(z_dir_fm)
+
+global x_pos_fm = CuArray(x_pos_fm)
+global y_pos_fm = CuArray(y_pos_fm)
+global z_pos_fm = CuArray(z_pos_fm)
+
 NN_s = CuArray{Int64}(NN_s)
 NN_n = CuArray{Int64}(NN_n)
 NN_e = CuArray{Int64}(NN_e)
@@ -306,8 +326,54 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX TO STORE TOTAL ENERGY
-global energy_tot_NN = CuArray(zeros(N_sg*replica_num, 1))
+#CALCULATION OF DUMMBELL ENERGY
+function compute_dummbell_energy()
+    E_0 = 1/10
+    q_sg_plus = 1
+    q_sg_minus = -1
+    q_fm_plus = 5
+    q_fm_minus = -5
+
+    r_fm_plus_d_x = x_pos_fm' .+ (x_dir_fm' ./ 2)
+    r_fm_plus_d_y = y_pos_fm' .+ (y_dir_fm' ./ 2)
+    r_fm_plus_d_z = z_pos_fm' .+ (z_dir_fm' ./ 2)
+
+    r_fm_minus_d_x = x_pos_fm' .- (x_dir_fm' ./ 2)
+    r_fm_minus_d_y = y_pos_fm' .- (y_dir_fm' ./ 2)
+    r_fm_minus_d_z = z_pos_fm' .- (z_dir_fm' ./ 2)
+
+    
+    r_sg_plus_d_x = (x_pos_sg .+ (x_dir_sg ./ 2))
+    r_sg_plus_d_y = (y_pos_sg .+ (y_dir_sg ./ 2))
+    r_sg_plus_d_z = (z_pos_sg .+ (z_dir_sg ./ 2))
+   
+    r_sg_minus_d_x = (x_pos_sg .- (x_dir_sg ./ 2))
+    r_sg_minus_d_y = (y_pos_sg .- (y_dir_sg ./ 2))
+    r_sg_minus_d_z = (z_pos_sg .- (z_dir_sg ./ 2))
+   
+    term_1_denom = sqrt.((r_fm_plus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_plus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_plus_d_z .- r_sg_plus_d_z).^2)
+    term_1 = q_fm_plus*q_sg_plus ./ term_1_denom
+
+    term_2_denom = sqrt.((r_fm_plus_d_x .- r_sg_minus_d_x).^2 .+ (r_fm_plus_d_y .- r_sg_minus_d_y).^2 .+ (r_fm_plus_d_z .- r_sg_minus_d_z).^2)
+    term_2 = q_fm_plus*q_sg_minus./ term_2_denom
+
+    term_3_denom = sqrt.((r_fm_minus_d_x .- r_sg_minus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_minus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_minus_d_z).^2)
+    term_3 = q_fm_minus*q_sg_minus ./ term_3_denom
+
+    term_4_denom = sqrt.((r_fm_minus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_plus_d_z).^2)
+    term_4 = q_fm_minus*q_sg_plus ./ term_4_denom
+
+    E_dumbbell = E_0*(term_1 .+ term_2 .+ term_3 .+ term_4)
+    E_dumbbell = sum(E_dumbbell, dims=2)
+
+    return E_dumbbell
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#MATRIX TO STORE ENERGY DUE TO rkky AND MAGNETIC BLOCKS
+global energy_tot = zeros(N_sg*replica_num, 1) |> CuArray
+global energy_dumbbell = zeros(N_sg*replica_num, 1) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -335,7 +401,10 @@ function compute_tot_energy_spin_glass()
     energy_y_NNN = y_dir_sg.*((J_NNN[r_NNN_s].*y_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*y_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*y_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*y_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*y_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*y_dir_sg[NNN_u .+ spin_rep_ref]))
     energy_z_NNN = z_dir_sg.*((J_NNN[r_NNN_s].*z_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*z_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*z_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*z_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*z_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*z_dir_sg[NNN_u .+ spin_rep_ref]))
 
-    global energy_tot = energy_x_NN .+ energy_y_NN .+ energy_z_NN .+ energy_x_NNN .+ energy_y_NNN .+ energy_z_NNN
+    global energy_RKKY = energy_x_NN .+ energy_y_NN .+ energy_z_NN .+ energy_x_NNN .+ energy_y_NNN .+ energy_z_NNN
+
+    global energy_dumbbell = compute_dummbell_energy()
+    global energy_tot = energy_RKKY .+ energy_dumbbell
 
     return energy_tot
 end
@@ -353,7 +422,7 @@ function compute_del_energy_spin_glass(MC_index)
 
     global r = rand_pos[:,MC_index] .+ rand_rep_ref
 
-    global del_energy = 2*energy_tot_NN[r]
+    global del_energy = 2*energy_tot[r]
 
     return del_energy
 end
@@ -366,7 +435,7 @@ global trans_rate = CuArray(zeros(replica_num, 1))
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #ONE MC STEPS
-function one_MC(MC_index, Temp_index)
+function one_MC(MC_index, Temp_index)                                           #benchmark time: 1.89ms (smallest)
     compute_del_energy_spin_glass(MC_index)
 
     @CUDA.allowscalar global Temp = Temp_values[Temp_index]
