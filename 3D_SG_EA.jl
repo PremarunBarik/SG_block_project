@@ -3,32 +3,32 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 rng = MersenneTwister(1234)
 
 #NUMBER OF REPLICAS 
-replica_num = 10
+replica_num = 2
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 1000
-MC_burns = 1000
+MC_steps = 100000
+MC_burns = 100000
 
 #TEMPERATURE VALUES
-min_Temp = 0.1
-max_Temp = 3.6
-Temp_step = 50
+min_Temp = 1.5
+max_Temp = 3.0
+Temp_step = 40
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 5
-n_y = 5
-n_z = 3
+n_x = 10
+n_y = 10
+n_z = 2
 
 N_sg = n_x*n_y*n_z
 
 #SPIN ELEMENT DIRECTION IN REPLICAS
-x_dir_sg = CuArray(zeros(N_sg, 1))
-y_dir_sg = CuArray(zeros(N_sg, 1))
-z_dir_sg = CuArray(zeros(N_sg, 1))
+x_dir_sg = zeros(N_sg, 1)
+y_dir_sg = zeros(N_sg, 1)
+z_dir_sg = zeros(N_sg, 1)
 
 for i in 1:N_sg
     theta = pi/2
@@ -38,16 +38,21 @@ for i in 1:N_sg
     z_dir_sg[i] = cos(theta)
 end
 
-x_dir_sg = repeat(x_dir_sg, 1, replica_num)
-y_dir_sg = repeat(y_dir_sg, 1, replica_num)
-z_dir_sg = repeat(z_dir_sg, 1, replica_num)
+
+x_dir_sg = repeat(x_dir_sg, replica_num, 1)
+y_dir_sg = repeat(y_dir_sg, replica_num, 1)
+z_dir_sg = repeat(z_dir_sg, replica_num, 1)
+
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
+#REFERENCE POSITION OF THE SPIN ELEMENTS IN MATRIX
+mx_sg = CuArray(collect(1:N_sg*replica_num))
+
 #REFERENCE POSITION OF THE SPIN ELEMENTS
-x_pos_sg = CuArray(zeros(N_sg, 1))
-y_pos_sg = CuArray(zeros(N_sg, 1))
-z_pos_sg = CuArray(zeros(N_sg, 1))
+x_pos_sg = zeros(N_sg, 1)
+y_pos_sg = zeros(N_sg, 1)
+z_pos_sg = zeros(N_sg, 1)
 
 for i in 1:N_sg
     x_pos_sg[i] = trunc((((i-1)% (n_x*n_y)))/n_x)+1             #10th position
@@ -55,251 +60,368 @@ for i in 1:N_sg
     z_pos_sg[i] = trunc((i-1)/(n_x*n_y)) +1                     #100th position
 end
 
-x_pos_sg = repeat(x_pos_sg, 1, replica_num)
-y_pos_sg = repeat(y_pos_sg, 1, replica_num)
-z_pos_sg = repeat(z_pos_sg, 1, replica_num)
-
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#EA INTERACTION MATRIX WITH NN INTERACTION
-J_NN = CuArray(zeros(N_sg,N_sg, replica_num))
+#INITIALIZATION OF FERROMAGNETIC BLOCKS
+x_num = 3                                                       #number of blocks along X axis 
+y_num = 3                                                       #number of blocks along Y axis
+N_fm = x_num*y_num
 
-for i in 1:N_sg                             #loop over all the spin ELEMENTS
-    for k in 1:replica_num
-        if x_pos_sg[i,k]%n_x == 0
-            r_s = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-n_x)*n_x + y_pos_sg[i,k]
-        else
-            r_s = (z_pos_sg[i,k]-1)*(n_x*n_y) + x_pos_sg[i,k]*n_x + y_pos_sg[i,k]
-        end
-        r_s = convert(Int64, trunc(r_s)) 
-        J_NN[i,r_s,k] = J_NN[r_s,i,k] = 1
-        #-----------------------------------------------------------#
-        if x_pos_sg[i,k]%n_x == 1
-            r_n = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]+n_x-2)*n_x + y_pos_sg[i,k]
-        else
-            r_n = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-2)*n_x + y_pos_sg[i,k]
-        end
-        r_n = convert(Int64, trunc(r_n)) 
-        J_NN[i,r_n,k] = J_NN[r_n,i,k] = 1
-        #-----------------------------------------------------------#
-        if y_pos_sg[i,k]%n_y == 0
-            r_e = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + (y_pos_sg[i,k]-n_y+1)
-        else
-            r_e = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]+1
-        end
-        r_e = convert(Int64, trunc(r_e)) 
-        J_NN[i,r_e,k] = J_NN[r_e,i,k] = 1
-        #-----------------------------------------------------------#
-        if y_pos_sg[i,k]%n_y == 1
-            r_w = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + (y_pos_sg[i,k]+n_y-1)
-        else
-            r_w = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]-1
-        end
-        r_w = convert(Int64, trunc(r_w)) 
-        J_NN[i,r_w,k] = J_NN[r_w,i,k] = 1
-        #-----------------------------------------------------------#
-        if z_pos_sg[i,k]%n_z == 0
-            r_u = ((z_pos_sg[i,k]-n_z)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
-        else
-            r_u = ((z_pos_sg[i,k])*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
-        end
-        r_u = convert(Int64, trunc(r_u)) 
-        J_NN[i,r_u,k] = J_NN[r_u,i,k] = 1 
-        #-----------------------------------------------------------#
-        if z_pos_sg[i,k]%n_z == 1
-            r_d = ((z_pos_sg[i,k]+n_z-2)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
-        else
-            r_d = ((z_pos_sg[i,k]-2)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
-        end
-        r_d = convert(Int64, trunc(r_d)) 
-        J_NN[i,r_d,k] = J_NN[r_d,i,k] = 1 
-    end
+x_dist = n_x/x_num                                              #distance between two blocks along x axis 
+y_dist = n_y/y_num                                              #distance between two blocks along y axis 
+
+#REFERENCE POSITION OF THE FERROMAGNETIC BLOCKS IN MATRIX
+mx_fm = CuArray(collect(1:N_fm))
+
+#REFERENCE POSITION OF THE BLOCKS
+x_pos_fm = zeros(N_fm, 1)
+y_pos_fm = zeros(N_fm, 1)
+
+for i in 1:N_fm
+    x_pos_fm[i] = trunc((i-1)/x_num)*(x_dist) + (x_dist/2)             #10th position
+    y_pos_fm[i] = ((i-1)%y_num)*(y_dist) + (y_dist/2)                    #1th position
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#EA INTERACTION MATRIX WITH NNN INTERACTION
-J_NNN = CuArray(zeros(N_sg,N_sg, replica_num))
+#ISING NEAR NEIGHBOUR CALCULATION
+NN_s = zeros(N_sg,1)
+NN_n = zeros(N_sg,1)
+NN_e = zeros(N_sg,1)
+NN_w = zeros(N_sg,1)
+NN_u = zeros(N_sg,1)
+NN_d = zeros(N_sg,1)
 
 for i in 1:N_sg                             #loop over all the spin ELEMENTS
-    for j in 1:replica_num
-        if x_pos_sg[i,k]%n_x == (n_x-1)
-            r_s = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-n_x+1)*n_x + y_pos_sg[i,k]
-        elseif x_pos_sg[i,j]%n_x == 0
-            r_s = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-n_x+1)*n_x + y_pos_sg[i,k]
+    if x_pos_sg[i]%n_x == 0
+        r_s = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-n_x)*n_x + y_pos_sg[i]
+    else
+        r_s = (z_pos_sg[i]-1)*(n_x*n_y) + x_pos_sg[i]*n_x + y_pos_sg[i]
+    end
+    r_s = convert(Int64, trunc(r_s)) 
+    NN_s[i] = r_s
+    #-----------------------------------------------------------#
+    if x_pos_sg[i]%n_x == 1
+        r_n = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]+n_x-2)*n_x + y_pos_sg[i]
+    else
+        r_n = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-2)*n_x + y_pos_sg[i]
+    end
+    r_n = convert(Int64, trunc(r_n)) 
+    NN_n[i] = r_n
+    #-----------------------------------------------------------#
+    if y_pos_sg[i]%n_y == 0
+        r_e = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]-n_y+1)
+    else
+        r_e = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]+1
+    end
+    r_e = convert(Int64, trunc(r_e)) 
+    NN_e[i] = r_e
+    #-----------------------------------------------------------#
+    if y_pos_sg[i]%n_y == 1
+        r_w = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]+n_y-1)
+    else
+        r_w = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]-1
+    end
+    r_w = convert(Int64, trunc(r_w)) 
+    NN_w[i] = r_w
+    #-----------------------------------------------------------#
+    if z_pos_sg[i]%n_z == 0
+        r_u = ((z_pos_sg[i]-n_z)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
+    else
+        r_u = ((z_pos_sg[i])*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
+    end
+    r_u = convert(Int64, trunc(r_u)) 
+    NN_u[i] = r_u
+    #-----------------------------------------------------------#
+    if z_pos_sg[i]%n_z == 1
+        r_d = ((z_pos_sg[i]+n_z-2)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
+    else
+        r_d = ((z_pos_sg[i]-2)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
+    end
+    r_d = convert(Int64, trunc(r_d)) 
+    NN_d[i] = r_d
+end
+
+NN_s = repeat(NN_s, replica_num, 1)
+NN_n = repeat(NN_n, replica_num, 1)
+NN_e = repeat(NN_e, replica_num, 1)
+NN_w = repeat(NN_w, replica_num, 1)
+NN_u = repeat(NN_u, replica_num, 1)
+NN_d = repeat(NN_d, replica_num, 1)
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#ISING NEAR NEIGHBOUR CALCULATION
+NNN_s = zeros(N_sg,1)
+NNN_n = zeros(N_sg,1)
+NNN_e = zeros(N_sg,1)
+NNN_w = zeros(N_sg,1)
+NNN_u = zeros(N_sg,1)
+NNN_d = zeros(N_sg,1)
+
+for i in 1:N_sg                             #loop over all the spin ELEMENTS
+        if x_pos_sg[i]%n_x == (n_x-1)
+            r_s = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-n_x+1)*n_x + y_pos_sg[i]
+        elseif x_pos_sg[i]%n_x == 0
+            r_s = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-n_x+1)*n_x + y_pos_sg[i]
         else 
-            r_s = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]+1)*n_x + y_pos_sg[i,k]
+            r_s = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]+1)*n_x + y_pos_sg[i]
         end
         r_s = convert(Int64, trunc(r_s)) 
-        J_NNN[i,r_s,k] = J_NN[r_s,i,k] = 1
+        NNN_s[i] = r_s
         #-----------------------------------------------------------#
-        if x_pos_sg[i,k]%n_x == 1
-            r_n = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]+n_x-3)*n_x + y_pos_sg[i,k]
-        elseif x_pos_sg[i,j]%n_x == 2
-            r_n = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]+n_x-3)*n_x + y_pos_sg[i,k]
+        if x_pos_sg[i]%n_x == 1
+            r_n = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]+n_x-3)*n_x + y_pos_sg[i]
+        elseif x_pos_sg[i]%n_x == 2
+            r_n = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]+n_x-3)*n_x + y_pos_sg[i]
         else
-            r_n = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-3)*n_x + y_pos_sg[i,k]
+            r_n = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-3)*n_x + y_pos_sg[i]
         end
         r_n = convert(Int64, trunc(r_n)) 
-        J_NNN[i,r_n,k] = J_NN[r_n,i,k] = 1
+        NNN_n[i] = r_n
         #-----------------------------------------------------------#
-        if y_pos_sg[i,k]%n_y == 0
-            r_e = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + (y_pos_sg[i,k]-n_y+2)
-        elseif y_pos_sg[i,j]%n_y == (n_y-1)
-            r_e = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + (y_pos_sg[i,k]-n_y+2)
+        if y_pos_sg[i]%n_y == 0
+            r_e = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]-n_y+2)
+        elseif y_pos_sg[i]%n_y == (n_y-1)
+            r_e = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]-n_y+2)
         else
-            r_e = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]+2
+            r_e = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]+2
         end
-        r_e = convert(Int64, trunc(r_e)) 
-        J_NNN[i,r_e,k] = J_NN[r_e,i,k] = 1
+        NNN_e[i] = r_e
         #-----------------------------------------------------------#
-        if y_pos_sg[i,k]%n_y == 1
-            r_w = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + (y_pos_sg[i,k]+n_y-2)
-        elseif y_pos_sg[i,j]%n_y == 2
-            r_w = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + (y_pos_sg[i,k]+n_y-2)
+        if y_pos_sg[i]%n_y == 1
+            r_w = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]+n_y-2)
+        elseif y_pos_sg[i]%n_y == 2
+            r_w = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]+n_y-2)
         else
-            r_w = (z_pos_sg[i,k]-1)*(n_x*n_y) + (x_pos_sg[i,k]-1)*n_x + (y_pos_sg[i,k]-2)
+            r_w = (z_pos_sg[i]-1)*(n_x*n_y) + (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]-2)
         end
         r_w = convert(Int64, trunc(r_w)) 
-        J_NNN[i,r_w,k] = J_NN[r_w,i,k] = 1
+        NNN_w[i] = r_w
         #-----------------------------------------------------------#
-        if z_pos_sg[i,k]%n_z == 0
-            r_u = ((z_pos_sg[i,k]-n_z+1)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
-        elseif z_pos_sg[i,j]%n_z == (n_z-1)
-            r_u = ((z_pos_sg[i,k]-n_z+1)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
+        if z_pos_sg[i]%n_z == 0
+            r_u = ((z_pos_sg[i]-n_z+1)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
+        elseif z_pos_sg[i]%n_z == (n_z-1)
+            r_u = ((z_pos_sg[i]-n_z+1)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
         else
-            r_u = ((z_pos_sg[i,k]+1)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
+            r_u = ((z_pos_sg[i]+1)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
         end
         r_u = convert(Int64, trunc(r_u)) 
-        J_NNN[i,r_u,k] = J_NN[r_u,i,k] = 1 
+        NNN_u[i] = r_u
         #-----------------------------------------------------------#
-        if z_pos_sg[i,k]%n_z == 1
-            r_d = ((z_pos_sg[i,k]+n_z-3)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
-        elseif z_pos_sg[i,j]%n_z == 2
-            r_d = ((z_pos_sg[i,k]+n_z-3)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
+        if z_pos_sg[i]%n_z == 1
+            r_d = ((z_pos_sg[i]+n_z-3)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
+        elseif z_pos_sg[i]%n_z == 2
+            r_d = ((z_pos_sg[i]+n_z-3)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
         else
-            r_d = ((z_pos_sg[i,k]-3)*(n_x*n_y)) + (x_pos_sg[i,k]-1)*n_x + y_pos_sg[i,k]
+            r_d = ((z_pos_sg[i]-3)*(n_x*n_y)) + (x_pos_sg[i]-1)*n_x + y_pos_sg[i]
         end
         r_d = convert(Int64, trunc(r_d)) 
-        J_NNN[i,r_d,k] = J_NN[r_d,i,k] = 1 
+        NNN_d[i] = r_d 
+end
+
+NNN_s = repeat(NNN_s, replica_num, 1)
+NNN_n = repeat(NNN_n, replica_num, 1)
+NNN_e = repeat(NNN_e, replica_num, 1)
+NNN_w = repeat(NNN_w, replica_num, 1)
+NNN_u = repeat(NNN_u, replica_num, 1)
+NNN_d = repeat(NNN_d, replica_num, 1)
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#INTERACTION COEFFICIENT MATRIX
+J_NN = zeros(N_sg,N_sg,replica_num)
+
+for i in 1:N_sg
+    for j in i:N_sg
+        for k in 1:replica_num
+            if i==j
+                continue
+            else
+                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random
+            end
+        end
     end
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#INTERACTION MATRIX WITH J VALUES
-J = J_NN.+J_NNN
+#INTERACTION COEFFICIENT MATRIX
+J_NNN = zeros(N_sg,N_sg,replica_num)
+
+for i in 1:N_sg
+    for j in i:N_sg
+        for k in 1:replica_num
+            if i==j
+                continue
+            else
+                J_NNN[i,j,k] = J_NNN[j,i,k] = 1                                   #for ising: 1, for spin glas: random
+            end
+        end
+    end
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#REPLICA REFERENCE MATRIX OF SPIN ELEMENTS
+spin_rep_ref = zeros(N_sg*replica_num,1)
+
+for i in eachindex(spin_rep_ref)
+    spin_rep_ref[i] = trunc((i-1)/N_sg)*N_sg
+end
+
+#REPLICA REFERENCE MATRIX OF RANDOMLY SELECTED SPIN IN MC_STEP
+rand_rep_ref = zeros(replica_num, 1)
+
+for i in eachindex(rand_rep_ref)
+    rand_rep_ref[i] = (i-1)*N_sg
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#CHANGING ALL THE MATRICES TO CU_ARRAY 
+global x_dir_sg = CuArray(x_dir_sg)
+global y_dir_sg = CuArray(y_dir_sg)
+global z_dir_sg = CuArray(z_dir_sg)
+
+NN_s = CuArray{Int64}(NN_s)
+NN_n = CuArray{Int64}(NN_n)
+NN_e = CuArray{Int64}(NN_e)
+NN_w = CuArray{Int64}(NN_w)
+NN_u = CuArray{Int64}(NN_u)
+NN_d = CuArray{Int64}(NN_d)
+
+NNN_s = CuArray{Int64}(NNN_s)
+NNN_n = CuArray{Int64}(NNN_n)
+NNN_e = CuArray{Int64}(NNN_e)
+NNN_w = CuArray{Int64}(NNN_w)
+NNN_d = CuArray{Int64}(NNN_d)
+NNN_u = CuArray{Int64}(NNN_u)
+
+J_NN = CuArray(J_NN)
+J_NNN = CuArray(J_NNN)
+
+spin_rep_ref = CuArray{Int64}(spin_rep_ref)
+rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE TOTAL ENERGY
-energy_tot = CuArray(zeros(N_sg, replica_num))
+global energy_tot_NN = CuArray(zeros(N_sg*replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE TOTAL ENERGY OF THE SYSTEM
-function compute_tot_energy_spin_glass(replica_num)
-    for i in 1:replica_num
-        replica_index = i
-        
-        energy_x = x_dir_sg[:,replica_index]'.*J[:,:,replica_index]
-        energy_x = sum(energy_x, dims=2)
-        energy_x = energy_x.*x_dir_sg[:,replica_index]
+function compute_tot_energy_spin_glass()
+    r_NN_s = (mx_sg.-1).*N_sg .+ NN_s
+    r_NN_n = (mx_sg.-1).*N_sg .+ NN_n 
+    r_NN_e = (mx_sg.-1).*N_sg .+ NN_e 
+    r_NN_w = (mx_sg.-1).*N_sg .+ NN_w 
+    r_NN_u = (mx_sg.-1).*N_sg .+ NN_u 
+    r_NN_d = (mx_sg.-1).*N_sg .+ NN_d 
 
-        energy_y = y_dir_sg[:,replica_index]'.*J[:,:,replica_index]
-        energy_y = sum(energy_y, dims=2)
-        energy_y = energy_y.*y_dir_sg[:,replica_index]
+    r_NNN_s = (mx_sg.-1).*N_sg .+ NNN_s
+    r_NNN_n = (mx_sg.-1).*N_sg .+ NNN_n 
+    r_NNN_e = (mx_sg.-1).*N_sg .+ NNN_e 
+    r_NNN_w = (mx_sg.-1).*N_sg .+ NNN_w 
+    r_NNN_u = (mx_sg.-1).*N_sg .+ NNN_u 
+    r_NNN_d = (mx_sg.-1).*N_sg .+ NNN_d 
 
-        energy_z = z_dir_sg[:,replica_index]'.*J[:,:,replica_index]
-        energy_z = sum(energy_z, dims=2)
-        energy_z = energy_z.*z_dir_sg[:,replica_index]
-        
-        energy_tot[:,replica_index] = energy_x.+energy_y.+energy_z 
-    end
+    energy_x_NN = x_dir_sg.*((J_NN[r_NN_s].*x_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_NN_n].*x_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_NN_e].*x_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_NN_w].*x_dir_sg[NN_w .+ spin_rep_ref]) .+ (J_NN[r_NN_u].*x_dir_sg[NN_u .+ spin_rep_ref]) .+ (J_NN[r_NN_d].*x_dir_sg[NN_d .+ spin_rep_ref]))
+    energy_y_NN = y_dir_sg.*((J_NN[r_NN_s].*y_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_NN_n].*y_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_NN_e].*y_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_NN_w].*y_dir_sg[NN_w .+ spin_rep_ref]) .+ (J_NN[r_NN_u].*y_dir_sg[NN_u .+ spin_rep_ref]) .+ (J_NN[r_NN_d].*y_dir_sg[NN_d .+ spin_rep_ref]))
+    energy_z_NN = z_dir_sg.*((J_NN[r_NN_s].*z_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_NN_n].*z_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_NN_e].*z_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_NN_w].*z_dir_sg[NN_w .+ spin_rep_ref]) .+ (J_NN[r_NN_u].*z_dir_sg[NN_u .+ spin_rep_ref]) .+ (J_NN[r_NN_d].*z_dir_sg[NN_d .+ spin_rep_ref]))
+
+    energy_x_NNN = x_dir_sg.*((J_NNN[r_NNN_s].*x_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*x_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*x_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*x_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*x_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*x_dir_sg[NNN_u .+ spin_rep_ref]))
+    energy_y_NNN = y_dir_sg.*((J_NNN[r_NNN_s].*y_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*y_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*y_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*y_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*y_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*y_dir_sg[NNN_u .+ spin_rep_ref]))
+    energy_z_NNN = z_dir_sg.*((J_NNN[r_NNN_s].*z_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*z_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*z_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*z_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*z_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*z_dir_sg[NNN_u .+ spin_rep_ref]))
+
+    global energy_tot = energy_x_NN .+ energy_y_NN .+ energy_z_NN .+ energy_x_NNN .+ energy_y_NNN .+ energy_z_NNN
 
     return energy_tot
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX WITH RANDOM INTEGER
-rand_pos = CuArray(rand(rng, (1:N_sg), (MC_steps,replica_num)))
-#MATRIX WITH RANDOM FLOAT NUMBER TO FLIP SPIN
-rand_num_flip = CuArray(rand(rng, Float64, (MC_steps,replica_num)))
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
 #MATRIX TO STORE DELTA ENERGY
-del_energy = CuArray(zeros(1, replica_num))
+global del_energy = CuArray(zeros(replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE THE ENERGY CHANGE OF THE SYSTEM
-function compute_del_energy_spin_glass(MC_index, replica_num)
-    compute_tot_energy_spin_glass(replica_num)
+function compute_del_energy_spin_glass(MC_index)
+    compute_tot_energy_spin_glass()
 
-    for i in 1:replica_num
-        replica_index = i 
-        del_energy[1,replica_index] = 2*energy_tot[rand_pos[MC_index,replica_index],replica_index]
-    end
+    global r = rand_pos[:,MC_index] .+ rand_rep_ref
+
+    global del_energy = 2*energy_tot_NN[r]
+
     return del_energy
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE DELTA ENERGY
-trans_rate = CuArray(zeros(1, replica_num))
+global trans_rate = CuArray(zeros(replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #ONE MC STEPS
-function one_MC(MC_index, Temp_index, replica_num)
-    compute_del_energy_spin_glass(MC_index, replica_num)
+function one_MC(MC_index, Temp_index)
+    compute_del_energy_spin_glass(MC_index)
 
-    for i in 1:replica_num
-        replica_index = i 
-        trans_rate[1,replica_index] = exp(-del_energy[1,replica_index]/Temp_values[Temp_index])
-        flipit = sign(rand_num_flip[MC_index,replica_index]-trans_rate[1,replica_index])
+    @CUDA.allowscalar global Temp = Temp_values[Temp_index]
+    global trans_rate = exp.(-del_energy/Temp)
+    flipit = sign.(rand_num_flip[:, MC_index] .- trans_rate)
 
-        x_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*x_dir_sg[rand_pos[MC_index, replica_index],replica_index]
-        y_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*y_dir_sg[rand_pos[MC_index, replica_index],replica_index]
-        z_dir_sg[rand_pos[MC_index, replica_index],replica_index] = flipit*z_dir_sg[rand_pos[MC_index, replica_index],replica_index]
-    end
+    global x_dir_sg[r] = flipit.*x_dir_sg[r]
+    global y_dir_sg[r] = flipit.*y_dir_sg[r]
+    global z_dir_sg[r] = flipit.*z_dir_sg[r]
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX FOR STOTING DATA
-magnetisation = CuArray(zeros(length(Temp_values), 1))
-energy = CuArray(zeros(length(Temp_values), 1))
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#MC BURN STEPS
-for i in 1:MC_burns
-  global MC_index = i
-  global Temp_index = 1
-  one_MC(MC_index, Temp_index, replica_num)
-end
+magnetisation = zeros(length(Temp_values), 1)
+energy = zeros(length(Temp_values), 1)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MAIN BODY
-for i in 1:length(Temp_values)                              #TEMPERATURE LOOP 
+@CUDA.allowscalar for i in eachindex(Temp_values)                              #TEMPERATURE LOOP 
     
     global Temp_index = i 
+
     #-----------------------------------------------------------#
     #MATRIX WITH RANDOM INTEGER
-    rand_pos = CuArray(rand(rng, (1:N_sg), (MC_steps,replica_num)))
+    global rand_pos = CuArray(rand(rng, (1:N_sg), (replica_num, MC_burns)))
     #MATRIX WITH RANDOM FLOAT NUMBER TO FLIP SPIN
-    rand_num_flip = CuArray(rand(rng, Float64, (MC_steps,replica_num)))
+    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, MC_burns)))
     #-----------------------------------------------------------#
+
+    #MC BURN STEPS
+    @CUDA.allowscalar for j in 1:MC_burns
+
+        global MC_index = j
+
+        one_MC(MC_index, Temp_index)
+    end
+
+    #-----------------------------------------------------------#
+    #MATRIX WITH RANDOM INTEGER
+    global rand_pos = CuArray(rand(rng, (1:N_sg), (replica_num, MC_steps)))
+    #MATRIX WITH RANDOM FLOAT NUMBER TO FLIP SPIN
+    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, MC_steps)))
+    #-----------------------------------------------------------#
+
     global mag = 0.0
     global en = 0.0
+
     #-----------------------------------------------------------#
-    for j in 1:MC_steps
+    @CUDA.allowscalar for j in 1:MC_steps
+
         global MC_index = j
-        one_MC(MC_index, Temp_index, replica_num)
+
+        one_MC(MC_index, Temp_index)
 
         mag = mag + sum(x_dir_sg)
     end
@@ -310,15 +432,12 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #SAVING AND PLOTTING DATA
-magnetisation = Array(magnetisation)
 Temp_values = Array(Temp_values)
 
-open("2D_Ising_gpu_magVsTemp_10_10.txt", "w") do io 					#creating a file to save data
-  for i in 1:length(Temp_values)
+open("2D_ising_gpu_magVsTemp_apprch2_30_30.txt", "w") do io 					#creating a file to save data
+   for i in 1:length(Temp_values)
       println(io,i,"\t",Temp_values[i],"\t",magnetisation[i])
-  end
+   end
 end
-println("--COMPLETE--")
 
-display(plot(Temp_values, magnetisation))
-savefig("2D_Ising_gpu_magVsTemp.png")
+#display(plot(Temp_values, magnetisation))
