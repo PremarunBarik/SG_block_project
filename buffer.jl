@@ -558,7 +558,7 @@ spatial_correlation = zeros(length(Temp_values), 1)
         spatial_correlation_terms(N_sg, replica_num)                                #CALCULATION OF TERMS TO CALCULATE SPATIAL CORRELATION
 
         spin_sqr = (x_dir_sg).^2
-        q_EA = sum(spin_sqr)
+        q_EA = sum(spin_sqr)                                                        #need to change the script -- average over mc steps then square
     end
     #-----------------------------------------------------------#
 
