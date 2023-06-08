@@ -7,7 +7,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 
 
 
-rng = MersenneTwister(1234)
+rng = MersenneTwister()
 
 #NUMBER OF REPLICAS 
 replica_num = 50
