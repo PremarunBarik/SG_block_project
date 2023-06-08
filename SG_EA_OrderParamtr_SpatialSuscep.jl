@@ -5,7 +5,8 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #This script applies only with 3 or more than 3 layers of spin glass material
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
-
+#FERROMAGNETIC BLOCK FIELD INTENSITY
+global field_intensity = 0.05
 
 rng = MersenneTwister()
 
@@ -340,11 +341,11 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 
 #CALCULATION OF DUMMBELL ENERGY
 function compute_dummbell_energy()
-    E_0 = 1/10
+
     q_sg_plus = 1
     q_sg_minus = -1
-    q_fm_plus = 0                                                       #zero for no magnetic field applied
-    q_fm_minus = 0
+    q_fm_plus = field_intensity                                                       #zero for no magnetic field applied
+    q_fm_minus = -field_intensity
 
     r_fm_plus_d_x = x_pos_fm' .+ (x_dir_fm' ./ 2)
     r_fm_plus_d_y = y_pos_fm'                                           #need to add - (y_dir_fm' ./ 2) - for heisenberg spin
@@ -374,7 +375,7 @@ function compute_dummbell_energy()
     term_4_denom = sqrt.((r_fm_minus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_plus_d_z).^2)
     term_4 = q_fm_minus*q_sg_plus ./ term_4_denom
 
-    E_dumbbell = E_0*(term_1 .+ term_2 .+ term_3 .+ term_4)
+    E_dumbbell = (term_1 .+ term_2 .+ term_3 .+ term_4)
     E_dumbbell = sum(E_dumbbell, dims=2)
 
     return E_dumbbell
