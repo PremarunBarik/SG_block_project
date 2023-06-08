@@ -543,11 +543,11 @@ spatial_correlation = zeros(length(Temp_values), 1)
     #-----------------------------------------------------------#
 
     #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
-    global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
+#   global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
     global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray                         #<sigma_i>
 
-    global mag = 0.0                                                                #storing magnetization data over monte carlo steps for a time step
- #  global en = 0.0                                                                 #storing energy data over monte carlo steps for a time step
+#   global mag = 0.0                                                                #storing magnetization data over monte carlo steps for a time step
+#   global en = 0.0                                                                 #storing energy data over monte carlo steps for a time step
 
     #-----------------------------------------------------------#
 
@@ -556,13 +556,15 @@ spatial_correlation = zeros(length(Temp_values), 1)
         global MC_index = j
 
         one_MC(MC_index, Temp_index)                                                #MONTE CARLO FUNCTION 
-        mag += sum(x_dir_sg)
+        spin_sum += x_dir_sg
+
     end
     #-----------------------------------------------------------#
 
     spin_sqr = (spin_sum/MC_steps).^2
+    magnetisation[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
     EA_order_para[Temp_index] = sum(spin_sqr)/(N_sg*replica_num)
-    magnetisation[Temp_index] = mag/(MC_steps*N_sg*replica_num)
+
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
