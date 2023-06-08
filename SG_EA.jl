@@ -1,6 +1,9 @@
 using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 
-rng = MersenneTwister(1234)
+rng = MersenneTwister()
+
+#FERROMAGNETIC BLOCK FIELD INTENSITY
+field_intensity = 0.05
 
 #NUMBER OF REPLICAS 
 replica_num = 100
@@ -246,7 +249,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random
+                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random
             end
         end
     end
@@ -263,7 +266,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NNN[i,j,k] = J_NNN[j,i,k] = 1                                   #for ising: 1, for spin glas: random
+                J_NNN[i,j,k] = J_NNN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random
             end
         end
     end
@@ -328,11 +331,11 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 
 #CALCULATION OF DUMMBELL ENERGY
 function compute_dummbell_energy()
-    E_0 = 1/10
+
     q_sg_plus = 1
     q_sg_minus = -1
-    q_fm_plus = 5
-    q_fm_minus = -5
+    q_fm_plus = field_intensity
+    q_fm_minus = -field_intensity
 
     r_fm_plus_d_x = x_pos_fm' .+ (x_dir_fm' ./ 2)
     r_fm_plus_d_y = y_pos_fm' .+ (y_dir_fm' ./ 2)
@@ -363,7 +366,7 @@ function compute_dummbell_energy()
     term_4_denom = sqrt.((r_fm_minus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_plus_d_z).^2)
     term_4 = q_fm_minus*q_sg_plus ./ term_4_denom
 
-    E_dumbbell = E_0*(term_1 .+ term_2 .+ term_3 .+ term_4)
+    E_dumbbell = (term_1 .+ term_2 .+ term_3 .+ term_4)
     E_dumbbell = sum(E_dumbbell, dims=2)
 
     return E_dumbbell
