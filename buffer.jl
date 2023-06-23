@@ -6,7 +6,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
 #FERROMAGNETIC BLOCK FIELD INTENSITY
-global field_intensity = 0.00
+global field_intensity = 1.00
 
 rng = MersenneTwister()
 
