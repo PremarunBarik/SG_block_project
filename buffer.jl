@@ -76,8 +76,8 @@ z_pos_sg = repeat(z_pos_sg, replica_num, 1)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #INITIALIZATION OF FERROMAGNETIC BLOCKS
-x_num = 3                                                       #number of blocks along X axis 
-y_num = 3                                                       #number of blocks along Y axis
+x_num = 5                                                       #number of blocks along X axis 
+y_num = 5                                                       #number of blocks along Y axis
 N_fm = x_num*y_num
 
 x_dist = n_x/x_num                                              #distance between two blocks along x axis 
@@ -89,7 +89,7 @@ mx_fm = CuArray(collect(1:N_fm))
 #REFERENCE POSITION OF THE BLOCKS
 x_pos_fm = zeros(N_fm, 1)
 y_pos_fm = zeros(N_fm, 1)
-z_pos_fm = fill(N_sg + 1, N_fm) 
+z_pos_fm = fill(n_z + 1, N_fm) 
 
 for i in 1:N_fm
     x_pos_fm[i] = trunc((i-1)/x_num)*(x_dist) + (x_dist/2)                  #10th position
