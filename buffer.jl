@@ -5,20 +5,21 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #This script applies only with 3 or more than 3 layers of spin glass material
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
+#FERROMAGNETIC BLOCK FIELD INTENSITY
+global field_intensity = 0.00
 
-
-rng = MersenneTwister(1234)
+rng = MersenneTwister()
 
 #NUMBER OF REPLICAS 
 replica_num = 50
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 10000
-MC_burns = 10000
+MC_steps = 150000
+MC_burns = 150000
 
 #TEMPERATURE VALUES
-min_Temp = 0.3
-max_Temp = 1.9
+min_Temp = 0.1
+max_Temp = 2.5
 Temp_step = 50
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
@@ -94,6 +95,8 @@ for i in 1:N_fm
     x_pos_fm[i] = trunc((i-1)/x_num)*(x_dist) + (x_dist/2)                  #10th position
     y_pos_fm[i] = ((i-1)%y_num)*(y_dist) + (y_dist/2)                       #1th position
 end
+
+#------------------------------------------------------------------------------------------------------------------------------#
 
 #MAGNETIC ORIENTATION OF FERROMAGNETIC BLOCKS
 x_dir_fm = fill(1, N_fm)                #for applie field along x-direction -- ising spins
@@ -275,7 +278,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NNN[i,j,k] = J_NNN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random
+                J_NNN[i,j,k] = J_NNN[j,i,k] = 0                                                    #for ising: 1, for spin glas: random
             end
         end
     end
@@ -340,11 +343,11 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 
 #CALCULATION OF DUMMBELL ENERGY
 function compute_dummbell_energy()
-    E_0 = 1/10
+
     q_sg_plus = 1
     q_sg_minus = -1
-    q_fm_plus = 0                                                       #zero for no magnetic field applied
-    q_fm_minus = 0
+    q_fm_plus = field_intensity                                                       #zero for no magnetic field applied
+    q_fm_minus = -field_intensity
 
     r_fm_plus_d_x = x_pos_fm' .+ (x_dir_fm' ./ 2)
     r_fm_plus_d_y = y_pos_fm'                                           #need to add - (y_dir_fm' ./ 2) - for heisenberg spin
@@ -374,7 +377,7 @@ function compute_dummbell_energy()
     term_4_denom = sqrt.((r_fm_minus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_plus_d_z).^2)
     term_4 = q_fm_minus*q_sg_plus ./ term_4_denom
 
-    E_dumbbell = E_0*(term_1 .+ term_2 .+ term_3 .+ term_4)
+    E_dumbbell = (term_1 .+ term_2 .+ term_3 .+ term_4)
     E_dumbbell = sum(E_dumbbell, dims=2)
 
     return E_dumbbell
@@ -428,15 +431,17 @@ global del_energy = CuArray(zeros(replica_num, 1))
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE THE ENERGY CHANGE OF THE SYSTEM
-function compute_del_energy_spin_glass(MC_index)
+function compute_del_energy_spin_glass(rng)
     compute_tot_energy_spin_glass()
 
-    global r = rand_pos[:,MC_index] .+ rand_rep_ref
+    global rand_pos =  CuArray(rand(rng, (1:N_sg), (replica_num, 1)))
+    global r = rand_pos .+ rand_rep_ref
 
     global del_energy = 2*energy_tot[r]
 
     return del_energy
 end
+
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -446,64 +451,25 @@ global trans_rate = CuArray(zeros(replica_num, 1))
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #ONE MC STEPS
-function one_MC(MC_index, Temp_index)                                           #benchmark time: 1.89ms (smallest)
-    compute_del_energy_spin_glass(MC_index)
+function one_MC(rng, Temp_index)                                                #benchmark time: 1.076ms (10x10x3 system size, 50 replicas)
+    compute_del_energy_spin_glass(rng)
 
     @CUDA.allowscalar global Temp = Temp_values[Temp_index]
     global trans_rate = exp.(-del_energy/Temp)
-    flipit = sign.(rand_num_flip[:, MC_index] .- trans_rate)
+    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, 1)))
+    flipit = sign.(rand_num_flip .- trans_rate)
 
     global x_dir_sg[r] = flipit.*x_dir_sg[r]
-    #global y_dir_sg[r] = flipit.*y_dir_sg[r]
-    #global z_dir_sg[r] = flipit.*z_dir_sg[r]
-end
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#creating a matrix with zero diagonal terms  to calculate the correlation terms
-diag_zero = fill(1, (N_sg, N_sg)) |> CuArray 
-diag_zero[diagind(diag_zero)] .= 0
-global  diag_zero = repeat(diag_zero, replica_num, 1)
-
-#Put inside the MC loop, after the MC function - Calculation of spatial correlation function terms
-function spatial_correlation_terms(N_sg, replica_num)
-    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
-    spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                  #Scalar indexing - less time consuming in CPU
-    spin_mux = spin_mux |> CuArray
-
-    global corltn_term1 += x_dir_sg .* spin_mux                                     #<sigma_i*sigma_j>
-   
-    global spin_sum += x_dir_sg                                                     #<sigma_i>
-end
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#put outside the MC loop, just at the end of MC loop, Inside the temp loop - Calculation of spatial coorelation function
-function spatial_correlation_claculation(MC_steps, N_sg, replica_num)
-    corltn_term1 = (corltn_term1/MC_steps) .* diag_zero
-
-    corltn_term2 = repeat(spin_sum/MC_steps, 1, N_sg)
-    corltn_term2 = corltn_term2 .*diag_zero                                         #<sigma_i>
-
-    corltn_term3 = reshape(spin_mux/MC_steps, (N_sg, replica_num))' |>  Array
-    corltn_term3 = repeat(corltn_term3, inner = (N_sg, 1))                          #Scalar indexing - less time consuming in CPU
-    corltn_term3 = corltn_term3 |> CuArray
-    corltn_term3 = corltn_term3 .* diag_zero                                        #<sigma_j>
-
-    sp_corltn = corltn_term1 .- (corltn_term2 .* corltn_term3)
-
-    return sp_corltn
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX FOR STORING DATA
-#magnetisation = zeros(length(Temp_values), 1)
+susceptibility = zeros(length(Temp_values), 1)
 #energy = zeros(length(Temp_values), 1)
-EA_order_para = fill(0, length(Temp_values), 1)
-spatial_correlation = zeros(length(Temp_values), 1)
+magnetization = zeros(length(Temp_values), 1)
+#spatial_correlation = zeros(length(Temp_values), 1)
+EAOrder_parametr = zeros(length(Temp_values), 1)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -512,41 +478,22 @@ spatial_correlation = zeros(length(Temp_values), 1)
     
     global Temp_index = i 
 
-    #-----------------------------------------------------------#
-
-    #MATRIX WITH RANDOM INTEGER
-    global rand_pos = CuArray(rand(rng, (1:N_sg), (replica_num, MC_burns)))
-    #MATRIX WITH RANDOM FLOAT NUMBER TO FLIP SPIN
-    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, MC_burns)))
-
-    #-----------------------------------------------------------#
-
     #MC BURN STEPS
     @CUDA.allowscalar for j in 1:MC_burns
 
-        global MC_index = j
+        one_MC(rng, Temp_index)
 
-        one_MC(MC_index, Temp_index)
     end
 
     #-----------------------------------------------------------#
 
     #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
-    global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
+#   global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
     global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray                         #<sigma_i>
-    
-    #-----------------------------------------------------------#
+    global spin_sqr_sum = zeros(N_sg*replica_num, 1)|> CuArray
 
-    #MATRIX WITH RANDOM INTEGER
-    global rand_pos = CuArray(rand(rng, (1:N_sg), (replica_num, MC_steps)))
-    #MATRIX WITH RANDOM FLOAT NUMBER TO FLIP SPIN
-    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, MC_steps)))
-
-    #-----------------------------------------------------------#
-
- #  global mag = 0.0                            #storing magnetization data over monte carlo steps for a time step
- #  global en = 0.0                             #storing energy data over monte carlo steps for a time step
-    global q_EA = 0.0                           #storing EA order paramter over monte carlos steps for a time step
+#   global mag = 0.0                                                                #storing magnetization data over monte carlo steps for a time step
+#   global en = 0.0                                                                 #storing energy data over monte carlo steps for a time step
 
     #-----------------------------------------------------------#
 
@@ -554,16 +501,22 @@ spatial_correlation = zeros(length(Temp_values), 1)
 
         global MC_index = j
 
-        one_MC(MC_index, Temp_index)                                                #MONTE CARLO FUNCTION 
-        spatial_correlation_terms(N_sg, replica_num)                                #CALCULATION OF TERMS TO CALCULATE SPATIAL CORRELATION
+        one_MC(rng, Temp_index)                                                     #MONTE CARLO FUNCTION 
+        spin_sum += x_dir_sg
+        spin_sqr_sum += x_dir_sg.^2
 
-        spin_sqr = (x_dir_sg).^2
-        q_EA = sum(spin_sqr)                                                        #need to change the script -- average over mc steps then square
     end
+
     #-----------------------------------------------------------#
 
-    spatial_correlation[Temp_index] = spatial_correlation_claculation(MC_steps, N_sg, replica_num)
-    EA_order_para[Temp_index] = q_EA/(replica_num*MC_steps*N_sg)
+    spin_sum_sqr = (spin_sum/MC_steps).^2
+    spin_sqr_sum = spin_sqr_sum/MC_steps
+
+    suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
+    EAOrder_parametr[Temp_index] = sum(spin_sum_sqr)/(MC_steps*N_sg*replica_num)
+    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
+    susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp_values[Temp_index])
+
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
@@ -571,14 +524,8 @@ end
 #SAVING AND PLOTTING DATA
 Temp_values = Array(Temp_values)
 
-open("SG_EA_eaOrdr_SpCorrln_10_10_3.txt", "w") do io 					#creating a file to save data
+open("3D_SG_mag_suscep_eaOrdr_10x10x3_MC1.0K.txt", "w") do io 					#creating a file to save data
    for i in 1:length(Temp_values)
-      println(io,i,"\t",Temp_values[i],"\t",spatial_correlation[i],"\t",EA_order_para[i])
+      println(io,i,"\t",Temp_values[i],"\t",magnetization[i],"\t",susceptibility[i],"\t",EAOrder_parametr[i])
    end
 end
-
-plot(Temp_values, spatial_correlation, xlabel="Temperature(T)", ylabel="Spatial Correlation (spin glass susceptibility)")
-savefig("SpatialCorrlnVsTemp_SG_EA.png")
-
-plot(Temp_values, EA_order_para, xlabel="Temperature(T)", ylabel="EA order parameter")
-savefig("EA_OrderparameterVsTemp_SG_EA.png")
