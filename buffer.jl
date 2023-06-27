@@ -11,20 +11,16 @@ global field_intensity = 1.00
 rng = MersenneTwister()
 
 #NUMBER OF REPLICAS 
-replica_num = 50
+global replica_num = 50
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 150000
-MC_burns = 150000
+global MC_steps = 150000
+global MC_burns = 150000
+global averaging_MC_steps = 10000
+global observation_points = convert(Int64, trunc(MC_steps/averaging_MC_steps))
 
-#TEMPERATURE VALUES
-min_Temp = 0.1
-max_Temp = 2.5
-Temp_step = 50
-Temp_interval = (max_Temp - min_Temp)/Temp_step
-Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
-Temp_values = reverse(Temp_values)
-
+#TEMPERATURE VALUE
+global Temp = 1.2
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
@@ -326,15 +322,15 @@ NN_w = CuArray{Int64}(NN_w)
 NN_u = CuArray{Int64}(NN_u)
 NN_d = CuArray{Int64}(NN_d)
 
-NNN_s = CuArray{Int64}(NNN_s)
-NNN_n = CuArray{Int64}(NNN_n)
-NNN_e = CuArray{Int64}(NNN_e)
-NNN_w = CuArray{Int64}(NNN_w)
-NNN_d = CuArray{Int64}(NNN_d)
-NNN_u = CuArray{Int64}(NNN_u)
+#NNN_s = CuArray{Int64}(NNN_s)
+#NNN_n = CuArray{Int64}(NNN_n)
+#NNN_e = CuArray{Int64}(NNN_e)
+#NNN_w = CuArray{Int64}(NNN_w)
+#NNN_d = CuArray{Int64}(NNN_d)
+#NNN_u = CuArray{Int64}(NNN_u)
 
 J_NN = CuArray(J_NN)
-J_NNN = CuArray(J_NNN)
+#J_NNN = CuArray(J_NNN)
 
 spin_rep_ref = CuArray{Int64}(spin_rep_ref)
 rand_rep_ref = CuArray{Int64}(rand_rep_ref)
@@ -400,22 +396,22 @@ function compute_tot_energy_spin_glass()
     r_NN_u = (mx_sg.-1).*N_sg .+ NN_u 
     r_NN_d = (mx_sg.-1).*N_sg .+ NN_d 
 
-    r_NNN_s = (mx_sg.-1).*N_sg .+ NNN_s
-    r_NNN_n = (mx_sg.-1).*N_sg .+ NNN_n 
-    r_NNN_e = (mx_sg.-1).*N_sg .+ NNN_e 
-    r_NNN_w = (mx_sg.-1).*N_sg .+ NNN_w 
-    r_NNN_u = (mx_sg.-1).*N_sg .+ NNN_u 
-    r_NNN_d = (mx_sg.-1).*N_sg .+ NNN_d 
+    #r_NNN_s = (mx_sg.-1).*N_sg .+ NNN_s
+    #r_NNN_n = (mx_sg.-1).*N_sg .+ NNN_n 
+    #r_NNN_e = (mx_sg.-1).*N_sg .+ NNN_e 
+    #r_NNN_w = (mx_sg.-1).*N_sg .+ NNN_w 
+    #r_NNN_u = (mx_sg.-1).*N_sg .+ NNN_u 
+    #r_NNN_d = (mx_sg.-1).*N_sg .+ NNN_d 
 
     energy_x_NN = x_dir_sg.*((J_NN[r_NN_s].*x_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_NN_n].*x_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_NN_e].*x_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_NN_w].*x_dir_sg[NN_w .+ spin_rep_ref]) .+ (J_NN[r_NN_u].*x_dir_sg[NN_u .+ spin_rep_ref]) .+ (J_NN[r_NN_d].*x_dir_sg[NN_d .+ spin_rep_ref]))
     #energy_y_NN = y_dir_sg.*((J_NN[r_NN_s].*y_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_NN_n].*y_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_NN_e].*y_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_NN_w].*y_dir_sg[NN_w .+ spin_rep_ref]) .+ (J_NN[r_NN_u].*y_dir_sg[NN_u .+ spin_rep_ref]) .+ (J_NN[r_NN_d].*y_dir_sg[NN_d .+ spin_rep_ref]))
     #energy_z_NN = z_dir_sg.*((J_NN[r_NN_s].*z_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_NN_n].*z_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_NN_e].*z_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_NN_w].*z_dir_sg[NN_w .+ spin_rep_ref]) .+ (J_NN[r_NN_u].*z_dir_sg[NN_u .+ spin_rep_ref]) .+ (J_NN[r_NN_d].*z_dir_sg[NN_d .+ spin_rep_ref]))
 
-    energy_x_NNN = x_dir_sg.*((J_NNN[r_NNN_s].*x_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*x_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*x_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*x_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*x_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*x_dir_sg[NNN_u .+ spin_rep_ref]))
+    #energy_x_NNN = x_dir_sg.*((J_NNN[r_NNN_s].*x_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*x_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*x_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*x_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*x_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*x_dir_sg[NNN_u .+ spin_rep_ref]))
     #energy_y_NNN = y_dir_sg.*((J_NNN[r_NNN_s].*y_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*y_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*y_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*y_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*y_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*y_dir_sg[NNN_u .+ spin_rep_ref]))
     #energy_z_NNN = z_dir_sg.*((J_NNN[r_NNN_s].*z_dir_sg[NNN_s .+ spin_rep_ref]) .+ (J_NNN[r_NNN_n].*z_dir_sg[NNN_n .+ spin_rep_ref]) .+ (J_NNN[r_NNN_e].*z_dir_sg[NNN_e .+ spin_rep_ref]) .+ (J_NNN[r_NNN_w].*z_dir_sg[NNN_w .+ spin_rep_ref]) .+ (J_NNN[r_NNN_d].*z_dir_sg[NNN_d .+ spin_rep_ref]) .+ (J_NNN[r_NNN_u].*z_dir_sg[NNN_u .+ spin_rep_ref]))
 
-    global energy_RKKY = energy_x_NN .+ energy_x_NNN 
+    global energy_RKKY = energy_x_NN                                               #for next nearest neighbor interaction, need to add the corresponding energy (energy_x_NNN)
 
     global energy_dumbbell = compute_dummbell_energy()
     global energy_tot = energy_RKKY .+ energy_dumbbell
@@ -451,10 +447,9 @@ global trans_rate = CuArray(zeros(replica_num, 1))
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #ONE MC STEPS
-function one_MC(rng, Temp_index)                                                #benchmark time: 1.076ms (10x10x3 system size, 50 replicas)
+function one_MC(rng, Temp)                                                #benchmark time: 1.076ms (10x10x3 system size, 50 replicas)
     compute_del_energy_spin_glass(rng)
 
-    @CUDA.allowscalar global Temp = Temp_values[Temp_index]
     global trans_rate = exp.(-del_energy/Temp)
     global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, 1)))
     flipit = sign.(rand_num_flip .- trans_rate)
@@ -464,68 +459,75 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX FOR STORING DATA
-susceptibility = zeros(length(Temp_values), 1)
-#energy = zeros(length(Temp_values), 1)
-magnetization = zeros(length(Temp_values), 1)
-#spatial_correlation = zeros(length(Temp_values), 1)
-EAOrder_parametr = zeros(length(Temp_values), 1)
+#creating a matrix with zero diagonal terms  to calculate the correlation terms
+diag_zero = fill(1, (N_sg, N_sg)) |> CuArray 
+diag_zero[diagind(diag_zero)] .= 0
+global  diag_zero = repeat(diag_zero, replica_num, 1)
 
-#------------------------------------------------------------------------------------------------------------------------------#
+#Put inside the MC loop, after the MC function - Calculation of spatial correlation function terms
+function spatial_correlation_terms(N_sg, replica_num)
+    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
+    spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                  #Scalar indexing - less time consuming in CPU
+    spin_mux = spin_mux |> CuArray
 
-#MAIN BODY
-@CUDA.allowscalar for i in eachindex(Temp_values)                              #TEMPERATURE LOOP 
-    
-    global Temp_index = i 
-
-    #MC BURN STEPS
-    @CUDA.allowscalar for j in 1:MC_burns
-
-        one_MC(rng, Temp_index)
-
-    end
-
-    #-----------------------------------------------------------#
-
-    #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
-#   global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
-    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray                         #<sigma_i>
-    global spin_sqr_sum = zeros(N_sg*replica_num, 1)|> CuArray
-
-#   global mag = 0.0                                                                #storing magnetization data over monte carlo steps for a time step
-#   global en = 0.0                                                                 #storing energy data over monte carlo steps for a time step
-
-    #-----------------------------------------------------------#
-
-    @CUDA.allowscalar for j in 1:MC_steps
-
-        global MC_index = j
-
-        one_MC(rng, Temp_index)                                                     #MONTE CARLO FUNCTION 
-        spin_sum += x_dir_sg
-        spin_sqr_sum += x_dir_sg.^2
-
-    end
-
-    #-----------------------------------------------------------#
-
-    spin_sum_sqr = (spin_sum/MC_steps).^2
-    spin_sqr_sum = spin_sqr_sum/MC_steps
-
-    suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
-    EAOrder_parametr[Temp_index] = sum(spin_sum_sqr)/(MC_steps*N_sg*replica_num)
-    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
-    susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp_values[Temp_index])
-
+    global corltn_term1 += x_dir_sg .* spin_mux                                     #<sigma_i*sigma_j>
+   
+    global spin_sum += x_dir_sg                                                     #<sigma_i>
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#SAVING AND PLOTTING DATA
-Temp_values = Array(Temp_values)
+#put outside the MC loop, just at the end of MC loop, Inside the temp loop - Calculation of spatial coorelation function
+function spatial_correlation_claculation(averaging_MC_steps, N_sg, replica_num)
+    global corltn_term1 = (corltn_term1/averaging_MC_steps) .* diag_zero
 
-open("3D_SG_mag_suscep_eaOrdr_10x10x3_MC1.0K.txt", "w") do io 					#creating a file to save data
-   for i in 1:length(Temp_values)
-      println(io,i,"\t",Temp_values[i],"\t",magnetization[i],"\t",susceptibility[i],"\t",EAOrder_parametr[i])
+    corltn_term2 = repeat(spin_sum/averaging_MC_steps, 1, N_sg)
+    corltn_term2 = corltn_term2 .*diag_zero                                         #<sigma_i>
+
+    corltn_term3 = reshape(spin_sum/averaging_MC_steps, (N_sg, replica_num))' |>  Array
+    corltn_term3 = repeat(corltn_term3, inner = (N_sg, 1))                          #Scalar indexing - less time consuming in CPU
+    corltn_term3 = corltn_term3 |> CuArray
+    corltn_term3 = corltn_term3 .* diag_zero                                        #<sigma_j>
+
+    sp_corltn = corltn_term1 .- (corltn_term2 .* corltn_term3)
+
+    return sum(sp_corltn)/(N_sg*replica_num*(N_sg-1))
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+EA_order_para = zeros(observation_points,1)
+spatial_correlation = zeros(observation_points,1)
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+@CUDA.allowscalar for i in 1:observation_points
+
+    #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
+    global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
+    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray                         #<sigma_i>
+
+    #-----------------------------------------------------------#
+
+    @CUDA.allowscalar for j in 1:averaging_MC_steps
+
+    one_MC(rng, Temp)                                                           #MONTE CARLO FUNCTION 
+    spatial_correlation_terms(N_sg, replica_num)                                #CALCULATION OF TERMS TO CALCULATE SPATIAL CORRELATION
+
+    end
+
+    #-----------------------------------------------------------#
+
+    spin_sqr = (spin_sum/averaging_MC_steps).^2
+    EA_order_para[i] = sum(spin_sqr)/(N_sg*replica_num)
+    
+    spatial_correlation[i] = spatial_correlation_claculation(MC_steps, N_sg, replica_num)
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+open("3D_SG_mag_SpaCorltn_MC0.5K_T1.2.txt", "w") do io 					#creating a file to save data
+   for i in 1:length(observation_points)
+      println(io,i,"\t",spatial_correlation[i],"\t",EA_order_para[i])
    end
 end
