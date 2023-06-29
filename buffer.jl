@@ -20,7 +20,7 @@ global averaging_MC_steps = 10000
 global observation_points = convert(Int64, trunc(MC_steps/averaging_MC_steps))
 
 #TEMPERATURE VALUE
-global Temp = 0.3
+global Temp = 1.2
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
@@ -469,12 +469,17 @@ end
 temporal_correlation = zeros(observation_points,1)
 spatial_correlation = zeros(observation_points,1)
 
+#creating a matrix with zero diagonal terms  to calculate the correlation terms
+diag_zero = fill(1, (N_sg, N_sg)) |> CuArray 
+diag_zero[diagind(diag_zero)] .= 0
+global  diag_zero = repeat(diag_zero, replica_num, 1)
+
 #------------------------------------------------------------------------------------------------------------------------------#
 
 @CUDA.allowscalar for i in 1:observation_points
 
     global tp_correlation_term = zeros(N_sg*replica_num, 1) |> CuArray              #sum of multiplication of temporal terms
-    global sp_correlation_term = zeros(N_sg*replica_num, 1) |> CuArray              #sum of multiplication of spatial terms
+    global sp_correlation_term = zeros(N_sg*replica_num, N_sg) |> CuArray              #sum of multiplication of spatial terms
     global x_dir_sg_time1 = x_dir_sg
 
     #-----------------------------------------------------------#
@@ -488,21 +493,23 @@ spatial_correlation = zeros(observation_points,1)
     spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
     spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                      #Scalar indexing - less time consuming in CPU
     spin_mux = spin_mux |> CuArray
-    global sp_corltn_term += x_dir_sg .* spin_mux                                       #<sigma_i*sigma_j>
+    global sp_correlation_term += x_dir_sg .* spin_mux                                       #<sigma_i*sigma_j>
 
     end
 
     #-----------------------------------------------------------#
 
     temporal_correlation[i] = sum(tp_correlation_term)/(N_sg*replica_num*averaging_MC_steps)
-    spatial_correlation[i] = sum(sp_correlation_term)/(N_sg*replica_num*averaging_MC_steps)
+
+    global sp_correlation_term = (sp_correlation_term/averaging_MC_steps).*diag_zero
+    spatial_correlation[i] = sum(sp_correlation_term)/(N_sg*replica_num)
 
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-open("3D_SG_tp_sp_corltn_MCav10K_T0.3_B0.0.txt", "w") do io 					#creating a file to save data
-   for i in 1:length(observation_points)
+open("3D_SG_tp_sp_corltn_MCav10K_T1.2_B0.0.txt", "w") do io 					#creating a file to save data
+    for i in 1:length(observation_points)
       println(io,i,"\t",temporal_correlation_correlation[i],"\t",spatial_correlation[i])
    end
 end
