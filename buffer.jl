@@ -6,7 +6,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
 #FERROMAGNETIC BLOCK FIELD INTENSITY
-global field_intensity = 1.00
+global field_intensity = 0.00
 
 rng = MersenneTwister()
 
@@ -14,13 +14,13 @@ rng = MersenneTwister()
 global replica_num = 50
 
 #NUMBER OF MC MC STEPS 
-global MC_steps = 150000
+global MC_steps = 600000
 global MC_burns = 150000
 global averaging_MC_steps = 10000
 global observation_points = convert(Int64, trunc(MC_steps/averaging_MC_steps))
 
 #TEMPERATURE VALUE
-global Temp = 1.2
+global Temp = 0.3
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
@@ -459,75 +459,50 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#creating a matrix with zero diagonal terms  to calculate the correlation terms
-diag_zero = fill(1, (N_sg, N_sg)) |> CuArray 
-diag_zero[diagind(diag_zero)] .= 0
-global  diag_zero = repeat(diag_zero, replica_num, 1)
+@CUDA.allowscalar for i in 1:MC_burns
 
-#Put inside the MC loop, after the MC function - Calculation of spatial correlation function terms
-function spatial_correlation_terms(N_sg, replica_num)
-    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
-    spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                  #Scalar indexing - less time consuming in CPU
-    spin_mux = spin_mux |> CuArray
-
-    global corltn_term1 += x_dir_sg .* spin_mux                                     #<sigma_i*sigma_j>
-   
-    global spin_sum += x_dir_sg                                                     #<sigma_i>
+    one_MC(rng, Temp)
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#put outside the MC loop, just at the end of MC loop, Inside the temp loop - Calculation of spatial coorelation function
-function spatial_correlation_claculation(averaging_MC_steps, N_sg, replica_num)
-    global corltn_term1 = (corltn_term1/averaging_MC_steps) .* diag_zero
-
-    corltn_term2 = repeat(spin_sum/averaging_MC_steps, 1, N_sg)
-    corltn_term2 = corltn_term2 .*diag_zero                                         #<sigma_i>
-
-    corltn_term3 = reshape(spin_sum/averaging_MC_steps, (N_sg, replica_num))' |>  Array
-    corltn_term3 = repeat(corltn_term3, inner = (N_sg, 1))                          #Scalar indexing - less time consuming in CPU
-    corltn_term3 = corltn_term3 |> CuArray
-    corltn_term3 = corltn_term3 .* diag_zero                                        #<sigma_j>
-
-    sp_corltn = corltn_term1 .- (corltn_term2 .* corltn_term3)
-
-    return sum(sp_corltn)/(N_sg*replica_num*(N_sg-1))
-end
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-EA_order_para = zeros(observation_points,1)
+temporal_correlation = zeros(observation_points,1)
 spatial_correlation = zeros(observation_points,1)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 @CUDA.allowscalar for i in 1:observation_points
 
-    #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
-    global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
-    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray                         #<sigma_i>
+    global tp_correlation_term = zeros(N_sg*replica_num, 1) |> CuArray              #sum of multiplication of temporal terms
+    global sp_correlation_term = zeros(N_sg*replica_num, 1) |> CuArray              #sum of multiplication of spatial terms
+    global x_dir_sg_time1 = x_dir_sg
 
     #-----------------------------------------------------------#
 
     @CUDA.allowscalar for j in 1:averaging_MC_steps
 
-    one_MC(rng, Temp)                                                           #MONTE CARLO FUNCTION 
-    spatial_correlation_terms(N_sg, replica_num)                                #CALCULATION OF TERMS TO CALCULATE SPATIAL CORRELATION
+    one_MC(rng, Temp)                                                                   #MONTE CARLO FUNCTION 
+
+    global tp_correlation_term += x_dir_sg_time1 .*x_dir_sg
+
+    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
+    spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                      #Scalar indexing - less time consuming in CPU
+    spin_mux = spin_mux |> CuArray
+    global sp_corltn_term += x_dir_sg .* spin_mux                                       #<sigma_i*sigma_j>
 
     end
 
     #-----------------------------------------------------------#
 
-    spin_sqr = (spin_sum/averaging_MC_steps).^2
-    EA_order_para[i] = sum(spin_sqr)/(N_sg*replica_num)
-    
-    spatial_correlation[i] = spatial_correlation_claculation(MC_steps, N_sg, replica_num)
+    temporal_correlation[i] = sum(tp_correlation_term)/(N_sg*replica_num*averaging_MC_steps)
+    spatial_correlation[i] = sum(sp_correlation_term)/(N_sg*replica_num*averaging_MC_steps)
+
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-open("3D_SG_mag_SpaCorltn_MC0.5K_T1.2.txt", "w") do io 					#creating a file to save data
+open("3D_SG_tp_sp_corltn_MCav10K_T0.3_B0.0.txt", "w") do io 					#creating a file to save data
    for i in 1:length(observation_points)
-      println(io,i,"\t",spatial_correlation[i],"\t",EA_order_para[i])
+      println(io,i,"\t",temporal_correlation_correlation[i],"\t",spatial_correlation[i])
    end
 end
