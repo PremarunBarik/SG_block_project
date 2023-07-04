@@ -14,13 +14,19 @@ rng = MersenneTwister()
 global replica_num = 50
 
 #NUMBER OF MC MC STEPS 
-global MC_steps = 600000
+global MC_steps = 150000
 global MC_burns = 150000
 global averaging_MC_steps = 10000
 global observation_points = convert(Int64, trunc(MC_steps/averaging_MC_steps))
 
-#TEMPERATURE VALUE
-global Temp = 1.2
+#TEMPERATURE VALUES
+min_Temp = 0.1
+max_Temp = 2.5
+Temp_step = 50
+Temp_interval = (max_Temp - min_Temp)/Temp_step
+Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
+Temp_values = reverse(Temp_values)
+
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
@@ -438,16 +444,10 @@ function compute_del_energy_spin_glass(rng)
     return del_energy
 end
 
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#MATRIX TO STORE DELTA ENERGY
-global trans_rate = CuArray(zeros(replica_num, 1))
-
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #ONE MC STEPS
-function one_MC(rng, Temp)                                                #benchmark time: 1.076ms (10x10x3 system size, 50 replicas)
+function one_MC_metropolis(rng, Temp)                                                #benchmark time: 1.076ms (10x10x3 system size, 50 replicas)
     compute_del_energy_spin_glass(rng)
 
     global trans_rate = exp.(-del_energy/Temp)
@@ -459,57 +459,90 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-@CUDA.allowscalar for i in 1:MC_burns
+#function to flip a spin using KMC subroutine
+function one_MC_kmc(rng, N_sg, replica_num, Temp)
+    compute_tot_energy_spin_glass()
 
-    one_MC(rng, Temp)
+    global trans_rate = exp.(-energy_tot/Temp)
+    global glauber = trans_rate./(1 .+ trans_rate)
+    global loc = reshape(mx_sg, (N_sg,replica_num)) |> Array
+
+    for k in 1:replica_num
+        loc[:,k] = shuffle!(loc[:,k])
+    end
+
+    trans_prob = glauber[loc] |> Array
+    trans_prob_ps = cumsum(trans_prob, dims=1)
+
+    @CUDA.allowscalar for k in 1:replica_num
+        for l in 1:N_sg
+            chk = rand(rng, Float64)*trans_prob_ps[N_sg,k]
+            if chk <= trans_prob_ps[l,k]
+                x_dir_sg[loc[l,k]] = (-1)*x_dir_sg[loc[l,k]]
+            break
+            end
+        end
+    end
+
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-temporal_correlation = zeros(observation_points,1)
-spatial_correlation = zeros(observation_points,1)
-
-#creating a matrix with zero diagonal terms  to calculate the correlation terms
-diag_zero = fill(1, (N_sg, N_sg)) |> CuArray 
-diag_zero[diagind(diag_zero)] .= 0
-global  diag_zero = repeat(diag_zero, replica_num, 1)
+#MATRIX FOR STORING DATA
+EAOrder_parameter = zeros(length(Temp_values), 1)
+susceptibility = zeros(length(Temp_vaues), 1)
+magnetization = zeros(length(Temp_vaues), 1)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-@CUDA.allowscalar for i in 1:observation_points
+@CUDA.allowscalar for i in eachindex(Temp_values)
 
-    global tp_correlation_term = zeros(N_sg*replica_num, 1) |> CuArray              #sum of multiplication of temporal terms
-    global sp_correlation_term = zeros(N_sg*replica_num, N_sg) |> CuArray              #sum of multiplication of spatial terms
-    global x_dir_sg_time1 = x_dir_sg
+    global Temp_index = i
+    global Temp = Temp_values[i]
 
     #-----------------------------------------------------------#
 
-    @CUDA.allowscalar for j in 1:averaging_MC_steps
+    @CUDA.allowscalar for i in 1:MC_burns
 
-    one_MC(rng, Temp)                                                                   #MONTE CARLO FUNCTION 
-
-    global tp_correlation_term += x_dir_sg_time1 .*x_dir_sg
-
-    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
-    spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                      #Scalar indexing - less time consuming in CPU
-    spin_mux = spin_mux |> CuArray
-    global sp_correlation_term += x_dir_sg .* spin_mux                                       #<sigma_i*sigma_j>
+    one_MC_kmc(rng, N_sg, replica_num, Temp)
 
     end
 
     #-----------------------------------------------------------#
 
-    temporal_correlation[i] = sum(tp_correlation_term)/(N_sg*replica_num*averaging_MC_steps)
+    #Initialization of the temp loop to calcuate sums over MC loops.
+    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray
+    global spin_sqr_sum = zeros(N_sg*replica_num, 1)
 
-    global sp_correlation_term = (sp_correlation_term/averaging_MC_steps).*diag_zero
-    spatial_correlation[i] = sum(sp_correlation_term)/(N_sg*replica_num)
+    #-----------------------------------------------------------#
+
+    @CUDA.allowscalar for j in 1:MC_steps
+
+    one_MC_kmc(rng, N_sg, replica_num, Temp)                                                                   #MONTE CARLO FUNCTION 
+    spin_sum += x_dir_sg
+    spn_sqr_sum += x_dir_sg.^2
+
+    end
+
+    #-----------------------------------------------------------#
+
+    spin_sum_sqr = (spin_sum/MC_steps).^2
+    spin_sqr_sum = spin_sqr_sum/MC_steps
+    suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
+
+    EAOrder_parameter[Temp_index] = sum(spin_sum_sqr)/(N_sg*replica_num)
+    magnetzation[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
+    susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp)
 
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-open("3D_SG_tp_sp_corltn_MCav10K_T1.2_B0.0.txt", "w") do io 					#creating a file to save data
-    for i in 1:length(observation_points)
-      println(io,i,"\t",temporal_correlation_correlation[i],"\t",spatial_correlation[i])
+#SAVING AND PLOTTING DATA 
+Temp_values = Array(Temp_values)
+
+open("3D_sg_kmc_suscep_EAop_0.5k_B0.0.txt", "w") do io 					#creating a file to save data
+    for i in 1:length(Temp_values)
+      println(io,i,"\t",Temp_values[i],"\t",magnetization[i],"\t",susceptibility[i],"\t",EAOrder_parameter[i])
    end
 end
