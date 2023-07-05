@@ -11,13 +11,11 @@ global field_intensity = 0.00
 rng = MersenneTwister()
 
 #NUMBER OF REPLICAS 
-global replica_num = 50
+global replica_num = 1
 
 #NUMBER OF MC MC STEPS 
-global MC_steps = 150000
-global MC_burns = 150000
-global averaging_MC_steps = 10000
-global observation_points = convert(Int64, trunc(MC_steps/averaging_MC_steps))
+global MC_steps = 2000
+global MC_burns = 1
 
 #TEMPERATURE VALUES
 min_Temp = 0.1
@@ -25,19 +23,19 @@ max_Temp = 2.5
 Temp_step = 50
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = CuArray(collect(min_Temp:Temp_interval:max_Temp))
-Temp_values = reverse(Temp_values)
+
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 10
-n_y = 10
+n_x = 2
+n_y = 2
 n_z = 3
 
 N_sg = n_x*n_y*n_z
 
 #SPIN ELEMENT DIRECTION IN REPLICAS
-x_dir_sg = [(-1)^rand(rng, Int64) for i in 1:N_sg]
+x_dir_sg = [1 for i in 1:N_sg]
 #y_dir_sg = zeros(N_sg, 1)
 #z_dir_sg = zeros(N_sg, 1)
 
@@ -263,7 +261,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random
+                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random
             end
         end
     end
@@ -343,6 +341,11 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
+#MATRIX TO STORE ENERGY DUE TO MAGNETIC BLOCKS
+global energy_dumbbell = zeros(N_sg*replica_num, 1) |> CuArray
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
 #CALCULATION OF DUMMBELL ENERGY
 function compute_dummbell_energy()
 
@@ -379,17 +382,16 @@ function compute_dummbell_energy()
     term_4_denom = sqrt.((r_fm_minus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_plus_d_z).^2)
     term_4 = q_fm_minus*q_sg_plus ./ term_4_denom
 
-    E_dumbbell = (term_1 .+ term_2 .+ term_3 .+ term_4)
-    E_dumbbell = sum(E_dumbbell, dims=2)
+    energy_dumbbell = (term_1 .+ term_2 .+ term_3 .+ term_4)
+    energy_dumbbell = sum(energy_dumbbell, dims=2)
 
-    return E_dumbbell
+    return energy_dumbbell
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX TO STORE ENERGY DUE TO rkky AND MAGNETIC BLOCKS
-global energy_tot = zeros(N_sg*replica_num, 1) |> CuArray
-global energy_dumbbell = zeros(N_sg*replica_num, 1) |> CuArray
+#MATRIX TO STORE ENERGY DUE TO RKKY 
+global energy_RKKY = zeros(N_sg*replica_num, 1) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -419,27 +421,29 @@ function compute_tot_energy_spin_glass()
 
     global energy_RKKY = energy_x_NN                                               #for next nearest neighbor interaction, need to add the corresponding energy (energy_x_NNN)
 
-    global energy_dumbbell = compute_dummbell_energy()
-    global energy_tot = energy_RKKY .+ energy_dumbbell
-
-    return energy_tot
+    return energy_RKKY
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
+#MATRIX TO STORE TOTAL ENERGY
+global energy_tot = zeros(N_sg*replica_num, 1) |> CuArray
 #MATRIX TO STORE DELTA ENERGY
-global del_energy = CuArray(zeros(replica_num, 1))
+global del_energy = zeros(replica_num, 1) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE THE ENERGY CHANGE OF THE SYSTEM
 function compute_del_energy_spin_glass(rng)
     compute_tot_energy_spin_glass()
+    compute_dummbell_energy()
+    
+    global energy_tot = 2*energy_RKKY .+ energy_dumbbell
 
     global rand_pos =  CuArray(rand(rng, (1:N_sg), (replica_num, 1)))
     global r = rand_pos .+ rand_rep_ref
 
-    global del_energy = 2*energy_tot[r]
+    global del_energy = energy_tot[r]
 
     return del_energy
 end
@@ -475,8 +479,8 @@ function one_MC_kmc(rng, N_sg, replica_num, Temp)
     trans_prob_ps = cumsum(trans_prob, dims=1)
 
     @CUDA.allowscalar for k in 1:replica_num
+        chk = rand(rng, Float64)*trans_prob_ps[N_sg,k]
         for l in 1:N_sg
-            chk = rand(rng, Float64)*trans_prob_ps[N_sg,k]
             if chk <= trans_prob_ps[l,k]
                 x_dir_sg[loc[l,k]] = (-1)*x_dir_sg[loc[l,k]]
             break
@@ -490,8 +494,8 @@ end
 
 #MATRIX FOR STORING DATA
 EAOrder_parameter = zeros(length(Temp_values), 1)
-susceptibility = zeros(length(Temp_vaues), 1)
-magnetization = zeros(length(Temp_vaues), 1)
+susceptibility = zeros(length(Temp_values), 1)
+magnetization = zeros(length(Temp_values), 1)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -502,9 +506,9 @@ magnetization = zeros(length(Temp_vaues), 1)
 
     #-----------------------------------------------------------#
 
-    @CUDA.allowscalar for i in 1:MC_burns
+    @CUDA.allowscalar for j in 1:MC_burns
 
-    one_MC_kmc(rng, N_sg, replica_num, Temp)
+        one_MC_kmc(rng, N_sg, replica_num, Temp)
 
     end
 
@@ -512,15 +516,15 @@ magnetization = zeros(length(Temp_vaues), 1)
 
     #Initialization of the temp loop to calcuate sums over MC loops.
     global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray
-    global spin_sqr_sum = zeros(N_sg*replica_num, 1)
+    global spin_sqr_sum = zeros(N_sg*replica_num, 1) |> CuArray
 
     #-----------------------------------------------------------#
 
     @CUDA.allowscalar for j in 1:MC_steps
 
-    one_MC_kmc(rng, N_sg, replica_num, Temp)                                                                   #MONTE CARLO FUNCTION 
-    spin_sum += x_dir_sg
-    spn_sqr_sum += x_dir_sg.^2
+        one_MC_kmc(rng, N_sg, replica_num, Temp)                                                                   #MONTE CARLO FUNCTION 
+        spin_sum += x_dir_sg
+        spin_sqr_sum += x_dir_sg.^2
 
     end
 
@@ -531,7 +535,7 @@ magnetization = zeros(length(Temp_vaues), 1)
     suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
 
     EAOrder_parameter[Temp_index] = sum(spin_sum_sqr)/(N_sg*replica_num)
-    magnetzation[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
+    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
     susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp)
 
 end
