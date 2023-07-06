@@ -11,7 +11,7 @@ rng = MersenneTwister()
 
 #NUMBER OF REPLICAS 
 replica_num = 2
-MC_runs = 100                                               #averaging Monte Carlo runs 
+MC_runs = 2                                               #averaging Monte Carlo runs 
 
 #NUMBER OF MC MC STEPS 
 MC_steps = 625000
@@ -55,7 +55,7 @@ x_dir_sg = [(-1)^rand(rng, Int64) for i in 1:N_sg*MC_runs, j in 1:replica_num]
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #REFERENCE POSITION OF THE SPIN ELEMENTS IN MATRIX
-mx_sg = Array(collect(1:N_sg*MC_runs))
+mx_sg = CuArray(collect(1:N_sg*MC_runs))
 
 #REFERENCE POSITION OF THE SPIN ELEMENTS IN GEOMETRY
 x_pos_sg = zeros(N_sg, 1)
@@ -162,13 +162,13 @@ NN_w = CuArray{Int64}(NN_w)
 
 J_NN = CuArray(J_NN)
 
-spin_rep_ref = Array{Int64}(spin_rep_ref)
-rand_rep_ref = Array{Int64}(rand_rep_ref)
+spin_rep_ref = CuArray{Int64}(spin_rep_ref)
+rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE ENERGY DUE TO rkky AND MAGNETIC BLOCKS
-global energy_tot = zeros(N_sg*replica_num, 1) |> Array
+global energy_tot = zeros(N_sg*MC_runs, replica_num) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -189,7 +189,7 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE DELTA ENERGY
-global del_energy = Array(zeros(replica_num, 1))
+global del_energy = CuArray(zeros(MC_runs, replica_num))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -197,7 +197,7 @@ global del_energy = Array(zeros(replica_num, 1))
 function compute_del_energy_spin_glass(rng)
     compute_tot_energy_spin_glass()
 
-    global rand_pos =  Array(rand(rng, (1:N_sg), (replica_num, 1)))
+    global rand_pos =  CuArray(rand(rng, (1:N_sg), (MC_runs, replica_num)))
     global r = rand_pos .+ rand_rep_ref
 
     global del_energy = 2*energy_tot[r]
@@ -208,7 +208,7 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE DELTA ENERGY
-global trans_rate = Array(zeros(replica_num, 1))
+global trans_rate = CuArray(zeros(replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -218,7 +218,7 @@ function one_MC(rng, Temp_index)                                           #benc
 
     global Temp = Temp_values[Temp_index]
     global trans_rate = exp.(-del_energy/Temp)
-    global rand_num_flip = Array(rand(rng, Float64, (replica_num, 1)))
+    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, 1)))
     flipit = sign.(rand_num_flip .- trans_rate)
 
     global x_dir_sg[r] = flipit.*x_dir_sg[r]
@@ -250,8 +250,8 @@ magnetization = zeros(length(Temp_values), 1)
 
     #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
 #   global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> Array                  #<sigma_i*sigma_j>
-    global spin_sum = zeros(N_sg*replica_num, 1) |> Array                         #<sigma_i>
-    global spin_sqr_sum = zeros(N_sg*replica_num, 1)|> Array
+    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray                         #<sigma_i>
+    global spin_sqr_sum = zeros(N_sg*replica_num, 1)|> CuArray
 
 #   global mag = 0.0                                                                #storing magnetization data over monte carlo steps for a time step
 #   global en = 0.0                                                                 #storing energy data over monte carlo steps for a time step
