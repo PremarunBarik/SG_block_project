@@ -5,7 +5,8 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #This script applies only with 3 or more than 3 layers of spin glass material
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
-
+#FERROMAGNETIC BLOCK FIELD INTENSITY
+global field_intensity = 4.00
 
 rng = MersenneTwister()
 
@@ -14,12 +15,12 @@ replica_num = 50
 
 #NUMBER OF MC MC STEPS 
 MC_steps = 100000
-MC_burns = 50000
+MC_burns = 100000
 
 #TEMPERATURE VALUES
 min_Temp = 0.1
 max_Temp = 2.0
-Temp_step = 100
+Temp_step = 50
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = collect(min_Temp:Temp_interval:max_Temp)
 Temp_values = reverse(Temp_values)
@@ -29,12 +30,12 @@ Temp_values = reverse(Temp_values)
 #NUMBER OF SPINGLASS ELEMENTS
 n_x = 10
 n_y = 10
+n_z = 1
 
 N_sg = n_x*n_y
 
 #SPIN ELEMENT DIRECTION IN REPLICAS
-x_dir_sg_1 = [(-1)^rand(rng, Int64) for i in 1:N_sg]
-x_dir_sg_2 = [(-1)^rand(rng, Int64) for i in 1:N_sg]
+x_dir_sg = [(-1)^rand(rng, Int64) for i in 1:N_sg]
 
 #y_dir_sg = zeros(N_sg, 1)
 #z_dir_sg = zeros(N_sg, 1)
@@ -49,8 +50,7 @@ x_dir_sg_2 = [(-1)^rand(rng, Int64) for i in 1:N_sg]
 #end
 #spin initialization -- for ising spins
 
-x_dir_sg_1 = repeat(x_dir_sg_1, replica_num, 1)
-x_dir_sg_2 = repeat(x_dir_sg_2, replica_num, 1)
+x_dir_sg = repeat(x_dir_sg, replica_num, 1)
 #y_dir_sg = repeat(y_dir_sg, replica_num, 1)
 #z_dir_sg = repeat(z_dir_sg, replica_num, 1)
 
@@ -62,11 +62,48 @@ mx_sg = CuArray(collect(1:N_sg*replica_num))
 #REFERENCE POSITION OF THE SPIN ELEMENTS IN GEOMETRY
 x_pos_sg = zeros(N_sg, 1)
 y_pos_sg = zeros(N_sg, 1)
+z_pos_sg = fill(n_z, N_sg)
 
 for i in 1:N_sg
     x_pos_sg[i] = trunc((i-1)/n_x)+1                    #10th position
     y_pos_sg[i] = ((i-1)%n_y)+1                         #1th position
 end
+
+x_pos_sg = repeat(x_pos_sg, replica_num, 1)
+y_pos_sg = repeat(y_pos_sg, replica_num, 1)
+z_pos_sg = repeat(z_pos_sg, replica_num, 1)
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#INITIALIZATION OF FERROMAGNETIC BLOCKS
+x_num = 5                                                       #number of blocks along X axis 
+y_num = 5                                                       #number of blocks along Y axis
+N_fm = x_num*y_num
+
+x_dist = n_x/x_num                                              #distance between two blocks along x axis 
+y_dist = n_y/y_num                                              #distance between two blocks along y axis 
+
+#REFERENCE POSITION OF THE FERROMAGNETIC BLOCKS IN MATRIX
+mx_fm = collect(1:N_fm) |> CuArray
+
+#REFERENCE POSITION OF THE BLOCKS
+x_pos_fm = zeros(N_fm, 1)
+y_pos_fm = zeros(N_fm, 1)
+z_pos_fm = fill(n_z + 1, N_fm) 
+
+for i in 1:N_fm
+    x_pos_fm[i] = trunc((i-1)/x_num)*(x_dist) + (x_dist/2)                  #10th position
+    y_pos_fm[i] = ((i-1)%y_num)*(y_dist) + (y_dist/2)                       #1th position
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#MAGNETIC ORIENTATION OF FERROMAGNETIC BLOCKS
+x_dir_fm = fill(1, N_fm)                #for applie field along x-direction -- ising spins
+
+#for aplied magnetic field along more than one direction -- need to change in the CuArray section -- and dummbell energy function
+#y_dir_fm = fill(0, N_fm)
+#z_dir_fm = fill(0, N_fm)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -150,13 +187,21 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #CHANGING ALL THE MATRICES TO CU_ARRAY 
-global x_dir_sg_1 = CuArray(x_dir_sg_1)
-global x_dir_sg_2 = CuArray(x_dir_sg_2)
+global x_dir_sg = CuArray(x_dir_sg)
 #global y_dir_sg = CuArray(y_dir_sg)
 #global z_dir_sg = CuArray(z_dir_sg)
 
-global x_pos_sg = CuArray(x_pos_sg)
-global y_pos_sg = CuArray(y_pos_sg)
+global x_pos_sg = CuArray(x_pos_sg .- 0.5)                                  #fixing the exact position of 
+global y_pos_sg = CuArray(y_pos_sg .- 0.5)
+global z_pos_sg = CuArray(z_pos_sg)
+
+global x_dir_fm = CuArray(x_dir_fm)
+#global y_dir_fm = CuArray(y_dir_fm)
+#global z_dir_fm = CuArray(z_dir_fm)
+
+global x_pos_fm = CuArray(x_pos_fm)
+global y_pos_fm = CuArray(y_pos_fm)
+global z_pos_fm = CuArray(z_pos_fm)
 
 NN_s = CuArray{Int64}(NN_s)
 NN_n = CuArray{Int64}(NN_n)
@@ -170,9 +215,57 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX TO STORE ENERGY DUE TO rkky AND MAGNETIC BLOCKS
-global energy_tot_1 = zeros(N_sg*replica_num, 1) |> CuArray
-global energy_tot_2 = zeros(N_sg*replica_num, 1) |> CuArray
+#MATRIX TO STORE ENERGY DUE TO MAGNETIC BLOCKS
+global energy_dumbbell = zeros(N_sg*replica_num, 1) |> CuArray
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#CALCULATION OF DUMMBELL ENERGY
+function compute_dummbell_energy()
+
+    q_sg_plus = 1
+    q_sg_minus = -1
+    q_fm_plus = field_intensity                                                       #zero for no magnetic field applied
+    q_fm_minus = -field_intensity
+
+    r_fm_plus_d_x = x_pos_fm' .+ (x_dir_fm' ./ 2)
+    r_fm_plus_d_y = y_pos_fm'                                           #need to add - (y_dir_fm' ./ 2) - for heisenberg spin
+    r_fm_plus_d_z = z_pos_fm'                                           #need to add - (z_dir_fm' ./ 2) - for heisenberg spins
+
+    r_fm_minus_d_x = x_pos_fm' .- (x_dir_fm' ./ 2)
+    r_fm_minus_d_y = y_pos_fm'                                          #need to sustract - (y_dir_fm' ./ 2) - for heisenberg spin
+    r_fm_minus_d_z = z_pos_fm'                                          #need to sustract - (z_dir_fm' ./ 2) - for heisenberg spin
+    
+    r_sg_plus_d_x = (x_pos_sg .+ (x_dir_sg ./ 2))
+    r_sg_plus_d_y = y_pos_sg                                            #need to add - (y_dir_sg' ./ 2) - for heisenberg spin
+    r_sg_plus_d_z = z_pos_sg                                            #need to add - (z_dir_sg' ./ 2) - for heisenberg spin
+   
+    r_sg_minus_d_x = (x_pos_sg .- (x_dir_sg ./ 2))
+    r_sg_minus_d_y = y_pos_sg                                           #need to substract - (y_dir_sg' ./ 2) - for heisenberg spin
+    r_sg_minus_d_z = z_pos_sg                                           #need to substract - (y_dir_sg' ./ 2) - for heisenberg spin
+   
+    term_1_denom = sqrt.((r_fm_plus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_plus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_plus_d_z .- r_sg_plus_d_z).^2)
+    term_1 = q_fm_plus*q_sg_plus ./ term_1_denom
+
+    term_2_denom = sqrt.((r_fm_plus_d_x .- r_sg_minus_d_x).^2 .+ (r_fm_plus_d_y .- r_sg_minus_d_y).^2 .+ (r_fm_plus_d_z .- r_sg_minus_d_z).^2)
+    term_2 = q_fm_plus*q_sg_minus./ term_2_denom
+
+    term_3_denom = sqrt.((r_fm_minus_d_x .- r_sg_minus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_minus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_minus_d_z).^2)
+    term_3 = q_fm_minus*q_sg_minus ./ term_3_denom
+
+    term_4_denom = sqrt.((r_fm_minus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_plus_d_z).^2)
+    term_4 = q_fm_minus*q_sg_plus ./ term_4_denom
+
+    energy_dumbbell = (term_1 .+ term_2 .+ term_3 .+ term_4)
+    energy_dumbbell = sum(energy_dumbbell, dims=2)
+
+    return energy_dumbbell
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#MATRIX TO STORE ENERGY DUE TO RKKY 
+global energy_RKKY = zeros(N_sg*replica_num, 1) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -183,43 +276,41 @@ function compute_tot_energy_spin_glass()
     r_e = (mx_sg.-1).*N_sg .+ NN_e 
     r_w = (mx_sg.-1).*N_sg .+ NN_w 
 
-    energy_x_1 = x_dir_sg_1.*((J_NN[r_s].*x_dir_sg_1[NN_s .+ spin_rep_ref]) .+ (J_NN[r_n].*x_dir_sg_1[NN_n .+ spin_rep_ref]) .+ (J_NN[r_e].*x_dir_sg_1[NN_e .+ spin_rep_ref]) .+ (J_NN[r_w].*x_dir_sg_1[NN_w .+ spin_rep_ref]))
-    energy_x_2 = x_dir_sg_2.*((J_NN[r_s].*x_dir_sg_2[NN_s .+ spin_rep_ref]) .+ (J_NN[r_n].*x_dir_sg_2[NN_n .+ spin_rep_ref]) .+ (J_NN[r_e].*x_dir_sg_2[NN_e .+ spin_rep_ref]) .+ (J_NN[r_w].*x_dir_sg_2[NN_w .+ spin_rep_ref]))
+    energy_x = x_dir_sg.*((J_NN[r_s].*x_dir_sg[NN_s .+ spin_rep_ref]) .+ (J_NN[r_n].*x_dir_sg[NN_n .+ spin_rep_ref]) .+ (J_NN[r_e].*x_dir_sg[NN_e .+ spin_rep_ref]) .+ (J_NN[r_w].*x_dir_sg[NN_w .+ spin_rep_ref]))
    
-    global energy_tot_1 = energy_x_1
-    global energy_tot_2 = energy_x_2
+    global energy_RKKY = energy_x
 
-    return energy_tot_1, energy_tot_2
+    return energy_RKKY
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
+#MATRIX TO STORE TOTAL ENERGY
+global energy_tot = zeros(N_sg*replica_num, 1) |> CuArray
 #MATRIX TO STORE DELTA ENERGY
-global del_energy_1 = CuArray(zeros(replica_num, 1))
-global del_energy_2 = CuArray(zeros(replica_num, 1))
+global del_energy = zeros(replica_num, 1) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE THE ENERGY CHANGE OF THE SYSTEM
 function compute_del_energy_spin_glass(rng)
     compute_tot_energy_spin_glass()
+    compute_dummbell_energy()
 
-    global rand_pos_1 =  CuArray(rand(rng, (1:N_sg), (replica_num, 1)))
-    global rand_pos_2 =  CuArray(rand(rng, (1:N_sg), (replica_num, 1)))
-    global r_1 = rand_pos_1 .+ rand_rep_ref
-    global r_2 = rand_pos_2 .+ rand_rep_ref
+    global energy_tot = 2*energy_RKKY .+ energy_dumbbell
 
-    global del_energy_1 = 2*energy_tot_1[r_1]
-    global del_energy_2 = 2*energy_tot_2[r_2]
+    global rand_pos =  CuArray(rand(rng, (1:N_sg), (replica_num, 1)))
+    global r = rand_pos .+ rand_rep_ref
 
-    return del_energy_1, del_energy_2
+    global del_energy = energy_tot[r]
+
+    return del_energy
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE DELTA ENERGY
-global trans_rate_1 = CuArray(zeros(replica_num, 1))
-global trans_rate_2 = CuArray(zeros(replica_num, 1))
+global trans_rate = CuArray(zeros(replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -227,21 +318,19 @@ global trans_rate_2 = CuArray(zeros(replica_num, 1))
 function one_MC(rng, Temp)                                           #benchmark time: 1.89ms (smallest)
     compute_del_energy_spin_glass(rng)
 
-    global trans_rate_1 = exp.(-del_energy_1/Temp)
-    global trans_rate_2 = exp.(-del_energy_2/Temp)
-    global rand_num_flip_1 = CuArray(rand(rng, Float64, (replica_num, 1)))
-    global rand_num_flip_2 = CuArray(rand(rng, Float64, (replica_num, 1)))
-    flipit_1 = sign.(rand_num_flip_1 .- trans_rate_1)
-    flipit_2 = sign.(rand_num_flip_2 .- trans_rate_2)
+    global trans_rate = exp.(-del_energy/Temp)
+    global rand_num_flip = CuArray(rand(rng, Float64, (replica_num, 1)))
+    flipit = sign.(rand_num_flip .- trans_rate)
 
-    global x_dir_sg_1[r_1] = flipit_1.*x_dir_sg_1[r_1]
-    global x_dir_sg_2[r_2] = flipit_2.*x_dir_sg_2[r_2]
+    global x_dir_sg[r] = flipit.*x_dir_sg[r]
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX FOR STORING DATA
-overlap_binder = zeros(length(Temp_values), 1)
+susceptibility = zeros(length(Temp_values), 1)
+magnetization = zeros(length(Temp_values), 1)
+EA_order_parameter = zeros(length(Temp_values), 1)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -261,169 +350,36 @@ overlap_binder = zeros(length(Temp_values), 1)
     #-----------------------------------------------------------#
 
     #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
-    global overlap_4 = 0.0
-    global overlap_2 = 0.0
+    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray
+    global spin_sqr_sum = zeros(N_sg*replica_num, 1) |> CuArray
 
     #-----------------------------------------------------------#
 
     @CUDA.allowscalar for j in 1:MC_steps
 
-        global MC_index = j
-
         one_MC(rng, Temp)                                                     #MONTE CARLO FUNCTION 
-        overlap = sum(x_dir_sg_1 .* x_dir_sg_2)/(N_sg*replica_num)
-    
-        overlap_4 += (overlap)^4
-        overlap_2 += (overlap)^2
+        spin_sum += x_dir_sg
+        spin_sqr_sum += x_dir_sg.^2
 
     end
     #-----------------------------------------------------------#
 
-    overlap_4 = overlap_4/MC_steps
-    overlap_2_2 = (overlap_2/MC_steps)^2
+    spin_sum_sqr = (spin_sum/MC_steps).^2
+    spin_sqr_sum = spin_sqr_sum/MC_steps
 
-    overlap_binder[Temp_index] = 0.5(3 - (overlap_4)/overlap_2_2)
+    suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
+    EA_order_parameter[Temp_index] = sum(spin_sum_sqr)/(N_sg*replica_num)
+    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
+    susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp_values[Temp_index])
+
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #SAVING THE GENERATED DATA
-open("2D_EA_OverlapBinder_15x15_100K.txt", "w") do io 					#creating a file to save data
+open("2D_EA_suscep_20x20_MC100K_B4.0_4x4.txt", "w") do io 					#creating a file to save data
    for i in 1:length(Temp_values)
-      println(io,i,"\t", Temp_values[i],"\t",overlap_binder[i])
+      println(io,i,"\t", Temp_values[i],"\t", susceptibility[i],"\t", magnetization[i], "\t", EA_order_parameter[i])
    end
 end
 
-#plot(Temp_values, spatial_correlation, xlabel="Temperature(T)", ylabel="Spatial Correlation (spin glass susceptibility)")
-#savefig("SpatialCorrlnVsTemp_SG_EA.png")
-
-#plot(Temp_values, EA_order_para, xlabel="Temperature(T)", ylabel="EA order parameter")
-#savefig("EA_OrderparameterVsTemp_SG_EA.png")
-
-
-
-
-
-using Random, Plots, LinearAlgebra, BenchmarkTools
-
-#To change the magnetic field intensity: goto 'compute_dummbell_energy' function
-#To change the density and orientation of ferromagnetic blocks go to 'Initialization of ferromagnetic blocks'
-#This script applies only with 3 or more than 3 layers of spin glass material
-#Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
-
-
-
-rng = MersenneTwister()
-
-#NUMBER OF REPLICAS 
-replica_num = 50
-
-#NUMBER OF MC MC STEPS 
-MC_steps = 100000
-MC_burns = 50000
-
-#TEMPERATURE VALUES
-min_Temp = 0.1
-max_Temp = 2.0
-Temp_step = 100
-Temp_interval = (max_Temp - min_Temp)/Temp_step
-Temp_values = collect(min_Temp:Temp_interval:max_Temp)
-Temp_values = reverse(Temp_values)
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#NUMBER OF SPINGLASS ELEMENTS
-n_x = 10
-n_y = 10
-n_z = 1
-
-N_sg = n_x*n_y
-
-#SPIN ELEMENT DIRECTION IN REPLICAS
-x_dir_sg = [(-1)^rand(rng, Int64) for i in 1:N_sg]
-#x_dir_sg_2 = [(-1)^rand(rng, Int64) for i in 1:N_sg]
-
-y_dir_sg = zeros(N_sg, 1)
-#z_dir_sg = zeros(N_sg, 1)
-
-#spin initialization -- for heisenberg spins -- need to chnage in the CuArray section -- need to change in the dummbell energy function
-#for i in 1:N_sg
-#    theta = pi/2
-#    phi = 0
-#    x_dir_sg[i] = sin(theta)cos(phi)
-#    y_dir_sg[i] = sin(theta)sin(phi)
-#    z_dir_sg[i] = cos(theta)
-#end
-#spin initialization -- for ising spins
-
-#x_dir_sg_1 = repeat(x_dir_sg_1, replica_num, 1)
-#x_dir_sg_2 = repeat(x_dir_sg_2, replica_num, 1)
-#y_dir_sg = repeat(y_dir_sg, replica_num, 1)
-#z_dir_sg = repeat(z_dir_sg, replica_num, 1)
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#REFERENCE POSITION OF THE SPIN ELEMENTS IN MATRIX
-mx_sg = collect(1:N_sg*replica_num)
-
-#REFERENCE POSITION OF THE SPIN ELEMENTS IN GEOMETRY( Not repeating for the replicas because position will be same for all replicas)
-x_pos_sg = zeros(N_sg, 1)
-y_pos_sg = zeros(N_sg, 1)
-z_pos_sg = fill(n_z, N_sg)
-
-for i in 1:N_sg
-    x_pos_sg[i] = trunc((i-1)/n_x)+1                    #10th position
-    y_pos_sg[i] = ((i-1)%n_y)+1                         #1th position
-end
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#REFERENCE POSITION OF THE SPIN ELEMENTS IN LATTICE( Not repeating for the replicas because position will be the same for all replicas)
-x_lattice_sg = x_pos_sg .- 0.5
-y_lattice_sg = y_pos_sg .- 0.5
-z_lattice_sg = z_pos_sg .- 0.5
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#INITIALIZATION OF FERROMAGNETIC BLOCKS
-x_num = 5                                                       #number of blocks along X axis 
-y_num = 5                                                       #number of blocks along Y axis
-N_fm = x_num*y_num
-
-x_dist = n_x/x_num                                              #distance between two blocks along x axis 
-y_dist = n_y/y_num                                              #distance between two blocks along y axis 
-
-#REFERENCE POSITION OF THE FERROMAGNETIC BLOCKS IN MATRIX
-mx_fm = collect(1:N_fm)
-
-#REFERENCE POSITION OF THE BLOCKS
-x_lattice_fm = zeros(N_fm, 1)
-y_lattice_fm = zeros(N_fm, 1)
-z_lattice_fm = fill(n_z + 1, N_fm) 
-
-for i in 1:N_fm
-    x_lattice_fm[i] = trunc((i-1)/x_num)*(x_dist) + (x_dist/2)                  #10th position
-    y_lattice_fm[i] = ((i-1)%y_num)*(y_dist) + (y_dist/2)                       #1th position
-end
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#MAGNETIC ORIENTATION OF FERROMAGNETIC BLOCKS
-x_dir_fm = fill(1, N_fm)                #for applie field along x-direction -- ising spins
-y_dir_fm = fill(0, N_fm)
-
-#for aplied magnetic field along more than one direction -- need to change in the CuArray section -- and dummbell energy function
-#y_dir_fm = fill(0, N_fm)
-#z_dir_fm = fill(0, N_fm)
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#PLOTTING SPIN CONFIGURATION AS QUIVER PLOT
-x_sg_start = x_lattice_sg .- x_dir_sg/2
-y_sg_start = y_lattice_sg .- y_dir_sg/2
-
-x_fm_start = x_lattice_fm .- x_dir_fm/2
-y_fm_start = y_lattice_fm .- y_dir_fm/2
-
-quiver(x_sg_start, y_sg_start, quiver=(x_dir_sg, y_dir_sg), linewidth=2)
-quiver!(x_fm_start, y_fm_start, quiver=(x_dir_fm, y_dir_fm), linewidth=2)
