@@ -219,7 +219,7 @@ global dipole_field = zeros(N_sg*replica_num, 1) |> CuArray
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #CALCULATION OF ENERGY DUE TO FERROMAGNETIC BLOCKS AS DIPOLES
-function calculate_dipole_energy()
+function calculate_dipole_field()
     positive_distance = sqrt.( ((x_pos_sg .- positive_x_pos_fm').^2) .+ ((y_pos_sg .- positive_y_pos_fm').^2) .+ ((z_pos_sg .- positive_z_pos_fm').^2))
     negative_distance = sqrt.( ((x_pos_sg .- negative_x_pos_fm').^2) .+ ((y_pos_sg .- negative_y_pos_fm').^2) .+ ((z_pos_sg .- negative_z_pos_fm').^2))
 
@@ -309,7 +309,7 @@ EA_order_parameter = zeros(length(Temp_values), 1)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MAIN BODY
-calculate_dipole_energy()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
+calculate_dipole_field()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
 
 @CUDA.allowscalar for i in eachindex(Temp_values)                               #TEMPERATURE LOOP 
     
