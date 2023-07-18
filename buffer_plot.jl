@@ -6,7 +6,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
 #FERROMAGNETIC BLOCK FIELD INTENSITY
-global field_intensity = 0.00
+global field_intensity = 1.0
 
 rng = MersenneTwister()
 
@@ -14,8 +14,8 @@ rng = MersenneTwister()
 replica_num = 50
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 100000
-MC_burns = 100000
+MC_steps = 1000
+MC_burns = 1000
 
 #TEMPERATURE VALUES
 min_Temp = 0.1
@@ -28,8 +28,8 @@ Temp_values = reverse(Temp_values)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 10
-n_y = 10
+n_x = 20
+n_y = 20
 n_z = 1
 
 N_sg = n_x*n_y
@@ -69,15 +69,11 @@ for i in 1:N_sg
     y_pos_sg[i] = ((i-1)%n_y)+1                         #1th position
 end
 
-x_pos_sg = repeat(x_pos_sg, replica_num, 1)
-y_pos_sg = repeat(y_pos_sg, replica_num, 1)
-z_pos_sg = repeat(z_pos_sg, replica_num, 1)
-
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #INITIALIZATION OF FERROMAGNETIC BLOCKS
-x_num = 5                                                       #number of blocks along X axis 
-y_num = 5                                                       #number of blocks along Y axis
+x_num = 4                                                       #number of blocks along X axis 
+y_num = 4                                                       #number of blocks along Y axis
 N_fm = x_num*y_num
 
 x_dist = n_x/x_num                                              #distance between two blocks along x axis 
@@ -85,6 +81,9 @@ y_dist = n_y/y_num                                              #distance betwee
 
 #REFERENCE POSITION OF THE FERROMAGNETIC BLOCKS IN MATRIX
 mx_fm = collect(1:N_fm) |> CuArray
+
+#LENGTH OF FERROMAGNETIC DIPOLE 
+fm_length = 3
 
 #REFERENCE POSITION OF THE BLOCKS
 x_pos_fm = zeros(N_fm, 1)
@@ -96,14 +95,14 @@ for i in 1:N_fm
     y_pos_fm[i] = ((i-1)%y_num)*(y_dist) + (y_dist/2)                       #1th position
 end
 
-#------------------------------------------------------------------------------------------------------------------------------#
+global positive_x_pos_fm = x_pos_fm .+ (fm_length/2)
+global negative_x_pos_fm = x_pos_fm .- (fm_length/2)
 
-#MAGNETIC ORIENTATION OF FERROMAGNETIC BLOCKS
-x_dir_fm = fill(1, N_fm)                #for applie field along x-direction -- ising spins
+global positive_y_pos_fm = y_pos_fm
+global negative_y_pos_fm = y_pos_fm
 
-#for aplied magnetic field along more than one direction -- need to change in the CuArray section -- and dummbell energy function
-#y_dir_fm = fill(0, N_fm)
-#z_dir_fm = fill(0, N_fm)
+global positive_z_pos_fm = z_pos_fm
+global negative_z_pos_fm = z_pos_fm
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -113,37 +112,40 @@ NN_n = zeros(N_sg,1)
 NN_e = zeros(N_sg,1)
 NN_w = zeros(N_sg,1)
 
+#ISING NEAR NEIGHBOUR CALCULATION
+NN_s = zeros(N_sg,1)
+NN_n = zeros(N_sg,1)
+NN_e = zeros(N_sg,1)
+NN_w = zeros(N_sg,1)
+
 for i in 1:N_sg                             #loop over all the spin ELEMENTS
         if x_pos_sg[i]%n_x == 0
-            r_s =  (x_pos_sg[i]-n_x)*n_x + y_pos_sg[i]
+            r_e =  (x_pos_sg[i]-n_x)*n_x + y_pos_sg[i]
         else
-            r_s =  x_pos_sg[i]*n_x + y_pos_sg[i]
-        end
-        r_s = convert(Int64, trunc(r_s)) 
-        NN_s[i] = r_s
-        #-----------------------------------------------------------#
-        if x_pos_sg[i]%n_x == 1
-            r_n = (x_pos_sg[i]+n_x-2)*n_x + y_pos_sg[i]
-        else
-            r_n = (x_pos_sg[i]-2)*n_x + y_pos_sg[i]
-        end
-        r_n = convert(Int64, trunc(r_n)) 
-        NN_n[i] = r_n
-        #-----------------------------------------------------------#
-        if y_pos_sg[i]%n_y == 0
-            r_e =  (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]-n_y+1)
-        else
-            r_e = (x_pos_sg[i]-1)*n_x + y_pos_sg[i]+1
+            r_e =  x_pos_sg[i]*n_x + y_pos_sg[i]
         end
         NN_e[i] = r_e
         #-----------------------------------------------------------#
-        if y_pos_sg[i]%n_y == 1
-            r_w = (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]+n_y-1)
+        if x_pos_sg[i]%n_x == 1
+            r_w = (x_pos_sg[i]+n_x-2)*n_x + y_pos_sg[i]
         else
-            r_w = (x_pos_sg[i]-1)*n_x + y_pos_sg[i]-1
+            r_w = (x_pos_sg[i]-2)*n_x + y_pos_sg[i]
         end
-        r_w = convert(Int64, trunc(r_w)) 
         NN_w[i] = r_w
+        #-----------------------------------------------------------#
+        if y_pos_sg[i]%n_y == 0
+            r_n =  (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]-n_y+1)
+        else
+            r_n = (x_pos_sg[i]-1)*n_x + y_pos_sg[i]+1
+        end
+        NN_n[i] = r_n
+        #-----------------------------------------------------------#
+        if y_pos_sg[i]%n_y == 1
+            r_s = (x_pos_sg[i]-1)*n_x + (y_pos_sg[i]+n_y-1)
+        else
+            r_s = (x_pos_sg[i]-1)*n_x + y_pos_sg[i]-1
+        end
+        NN_s[i] = r_s
 end
 
 NN_s = repeat(NN_s, replica_num, 1)
@@ -191,17 +193,13 @@ global x_dir_sg = CuArray(x_dir_sg)
 #global y_dir_sg = CuArray(y_dir_sg)
 #global z_dir_sg = CuArray(z_dir_sg)
 
-global x_pos_sg = CuArray(x_pos_sg .- 0.5)                                  #fixing the exact position of 
-global y_pos_sg = CuArray(y_pos_sg .- 0.5)
-global z_pos_sg = CuArray(z_pos_sg)
+global x_pos_sg = Array(x_pos_sg .- 0.5)                                  #fixing the exact position of 
+global y_pos_sg = Array(y_pos_sg .- 0.5)
+global z_pos_sg = Array(z_pos_sg)
 
-global x_dir_fm = CuArray(x_dir_fm)
-#global y_dir_fm = CuArray(y_dir_fm)
-#global z_dir_fm = CuArray(z_dir_fm)
-
-global x_pos_fm = CuArray(x_pos_fm)
-global y_pos_fm = CuArray(y_pos_fm)
-global z_pos_fm = CuArray(z_pos_fm)
+global x_pos_fm = Array(x_pos_fm)
+global y_pos_fm = Array(y_pos_fm)
+global z_pos_fm = Array(z_pos_fm)
 
 NN_s = CuArray{Int64}(NN_s)
 NN_n = CuArray{Int64}(NN_n)
@@ -216,50 +214,89 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE ENERGY DUE TO MAGNETIC BLOCKS
-global energy_dumbbell = zeros(N_sg*replica_num, 1) |> CuArray
+global energy_dipole = zeros(N_sg*replica_num, 1) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#CALCULATION OF DUMMBELL ENERGY
-function compute_dummbell_energy()
+#CALCULATION OF ENERGY DUE TO FERROMAGNETIC BLOCKS AS DIPOLES
+function calculate_dipole_energy()
+    positive_distance = sqrt.( ((x_pos_sg .- positive_x_pos_fm').^2) .+ ((y_pos_sg .- positive_y_pos_fm').^2) .+ ((z_pos_sg .- positive_z_pos_fm').^2))
+    negative_distance = sqrt.( ((x_pos_sg .- negative_x_pos_fm').^2) .+ ((y_pos_sg .- negative_y_pos_fm').^2) .+ ((z_pos_sg .- negative_z_pos_fm').^2))
 
-    q_sg_plus = 1
-    q_sg_minus = -1
-    q_fm_plus = field_intensity                                                       #zero for no magnetic field applied
-    q_fm_minus = -field_intensity
+    q_positive = field_intensity
+    q_negative = -field_intensity
 
-    r_fm_plus_d_x = x_pos_fm' .+ (x_dir_fm' ./ 2)
-    r_fm_plus_d_y = y_pos_fm'                                           #need to add - (y_dir_fm' ./ 2) - for heisenberg spin
-    r_fm_plus_d_z = z_pos_fm'                                           #need to add - (z_dir_fm' ./ 2) - for heisenberg spins
+    B_x_positive = q_positive *(x_pos_sg .- positive_x_pos_fm')./(positive_distance.^3)
+    B_x_negative = q_negative *(x_pos_sg .- negative_x_pos_fm')./(negative_distance.^3)
 
-    r_fm_minus_d_x = x_pos_fm' .- (x_dir_fm' ./ 2)
-    r_fm_minus_d_y = y_pos_fm'                                          #need to sustract - (y_dir_fm' ./ 2) - for heisenberg spin
-    r_fm_minus_d_z = z_pos_fm'                                          #need to sustract - (z_dir_fm' ./ 2) - for heisenberg spin
+    B_x_tot = B_x_positive .+ B_x_negative
+
+    field_dipole = sum(B_x_tot, dims=2) 
+    global field_dipole = repeat(field_dipole, replica_num, 1) |> CuArray
+    global energy_dipole = field_dipole.*x_dir_sg
+
+    return energy_dipole
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#J-DISTRIBUTION AND SPIN CONFIGURATION PLOTTING
+function plot_spin_config(Temp)
+    #COLOR PALETTE TO PLOT THE J DISTRIBUTION
+    global color_palette = [:yellow, :cyan, :green]
+    global J_NN_plot = Array{Int64}(J_NN[:,:,1] .+ 2) 
+
+    global x_pos_sg_plot = x_pos_sg[1:N_sg] |> Array
+    global y_pos_sg_plot = y_pos_sg[1:N_sg] |> Array
+
+    global J_x_pos_s = x_pos_sg_plot |> Array
+    global J_y_pos_s = (y_pos_sg_plot .- 0.5) |> Array
+
+    global J_x_pos_n = x_pos_sg_plot |> Array
+    global J_y_pos_n = (y_pos_sg_plot .+ 0.5) |> Array
+
+    global J_x_pos_e = (x_pos_sg_plot .+ 0.5) |> Array
+    global J_y_pos_e = y_pos_sg_plot |> Array
+
+    global J_x_pos_w = (x_pos_sg_plot .- 0.5) |> Array
+    global J_y_pos_w = y_pos_sg_plot |> Array
+
+    global mx_sg_plot = mx_sg[1:N_sg] |> Array
+
+    global NN_s_plot = NN_s[1:N_sg] |> Array
+    global NN_n_plot = NN_n[1:N_sg] |> Array
+    global NN_e_plot = NN_e[1:N_sg] |> Array
+    global NN_w_plot = NN_w[1:N_sg] |> Array
+
+    global r_s_plot = ((mx_sg_plot.-1).*N_sg .+ NN_s_plot) |> Array
+    global r_n_plot = ((mx_sg_plot.-1).*N_sg .+ NN_n_plot) |> Array
+    global r_e_plot = ((mx_sg_plot.-1).*N_sg .+ NN_e_plot) |> Array
+    global r_w_plot = ((mx_sg_plot.-1).*N_sg .+ NN_w_plot) |> Array
+
+    global alpha = 0.2*ones(N_sg, 1)
+
+
+    scatter(J_x_pos_s, J_y_pos_s, color=color_palette[J_NN_plot[r_s_plot]], markerstrokewidth=0, markersize=7, alpha=alpha, label="")
+    scatter!(J_x_pos_n, J_y_pos_n, color=color_palette[J_NN_plot[r_n_plot]], markerstrokewidth=0, markersize=7, alpha=alpha, label="")
+    scatter!(J_x_pos_e, J_y_pos_e, color=color_palette[J_NN_plot[r_e_plot]], markerstrokewidth=0, markersize=7, alpha=alpha, label="")
+    scatter!(J_x_pos_w, J_y_pos_w, color=color_palette[J_NN_plot[r_w_plot]], markerstrokewidth=0, markersize=7, alpha=alpha, label="")
+
+    global x_dir_sg_plot = (x_dir_sg[1:N_sg] .* 0.5) |> Array
+    global y_dir_sg_plot = zeros(N_sg,1) |> Array
+
+    global x_pos_sg_plot = (x_pos_sg_plot .- (x_dir_sg_plot./2)) |> Array
+    global y_pos_sg_plot = (y_pos_sg_plot .- (y_dir_sg_plot./2)) |> Array
+
+    global x_dir_sg_plot = x_dir_sg_plot |> Array
+    global y_dir_sg_plot = y_dir_sg_plot |> Array
+
+    quiver!(x_pos_sg_plot, y_pos_sg_plot, quiver=(x_dir_sg_plot, y_dir_sg_plot), color=:blue, linewidth=1)
+    scatter!(positive_x_pos_fm, positive_y_pos_fm, label="+Qm(+1)", legendfont=font(14), xtickfont=font(12), ytickfont=font(12), markerstrokewidth=0, markersize=5, color=:red)
+    scatter!(negative_x_pos_fm, negative_y_pos_fm, label="-Qm(-1)", legendfont=font(14), xtickfont=font(12), ytickfont=font(12), markerstrokewidth=0, markersize=5, color=:purple)
     
-    r_sg_plus_d_x = (x_pos_sg .+ (x_dir_sg ./ 2))
-    r_sg_plus_d_y = y_pos_sg                                            #need to add - (y_dir_sg' ./ 2) - for heisenberg spin
-    r_sg_plus_d_z = z_pos_sg                                            #need to add - (z_dir_sg' ./ 2) - for heisenberg spin
-   
-    r_sg_minus_d_x = (x_pos_sg .- (x_dir_sg ./ 2))
-    r_sg_minus_d_y = y_pos_sg                                           #need to substract - (y_dir_sg' ./ 2) - for heisenberg spin
-    r_sg_minus_d_z = z_pos_sg                                           #need to substract - (y_dir_sg' ./ 2) - for heisenberg spin
-   
-    term_1_denom = sqrt.((r_fm_plus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_plus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_plus_d_z .- r_sg_plus_d_z).^2)
-    term_1 = q_fm_plus*q_sg_plus ./ term_1_denom
+    title!("Spin configuration at T:$Temp")
 
-    term_2_denom = sqrt.((r_fm_plus_d_x .- r_sg_minus_d_x).^2 .+ (r_fm_plus_d_y .- r_sg_minus_d_y).^2 .+ (r_fm_plus_d_z .- r_sg_minus_d_z).^2)
-    term_2 = q_fm_plus*q_sg_minus./ term_2_denom
-
-    term_3_denom = sqrt.((r_fm_minus_d_x .- r_sg_minus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_minus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_minus_d_z).^2)
-    term_3 = q_fm_minus*q_sg_minus ./ term_3_denom
-
-    term_4_denom = sqrt.((r_fm_minus_d_x .- r_sg_plus_d_x).^2 .+ (r_fm_minus_d_y .- r_sg_plus_d_y).^2 .+ (r_fm_minus_d_z .- r_sg_plus_d_z).^2)
-    term_4 = q_fm_minus*q_sg_plus ./ term_4_denom
-
-    energy_dumbbell = (term_1 .+ term_2 .+ term_3 .+ term_4)
-    energy_dumbbell = sum(energy_dumbbell, dims=2)
-
-    return energy_dumbbell
+    savefig("config_T$Temp.png")
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
@@ -295,9 +332,8 @@ global del_energy = zeros(replica_num, 1) |> CuArray
 #COMPUTE THE ENERGY CHANGE OF THE SYSTEM
 function compute_del_energy_spin_glass(rng)
     compute_tot_energy_spin_glass()
-    compute_dummbell_energy()
 
-    global energy_tot = 2*energy_RKKY .+ energy_dumbbell
+    global energy_tot = 2*energy_RKKY .+ energy_dipole
 
     global rand_pos =  CuArray(rand(rng, (1:N_sg), (replica_num, 1)))
     global r = rand_pos .+ rand_rep_ref
@@ -327,94 +363,63 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#creating a matrix with zero diagonal terms  to calculate the correlation terms
-diag_zero = fill(1, (N_sg, N_sg)) |> CuArray
-diag_zero[diagind(diag_zero)] .= 0
-global  diag_zero = repeat(diag_zero, replica_num, 1)
-
-#Put inside the MC loop, after the MC function - Calculation of spatial correlation function terms
-function spatial_correlation_terms(N_sg, replica_num)
-    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
-    spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                  #Scalar indexing - less time consum$
-    spin_mux = spin_mux |> CuArray
-
-    global corltn_term1 += x_dir_sg .* spin_mux                                     #sum of sigma_i*sigma_j
-
-    global spin_sum += x_dir_sg                                                     # sum of sigma_i
-end
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#put outside the MC loop, just at the end of MC loop, Inside the temp loop - Calculation of spatial coorelation function
-function spatial_correlation_claculation(MC_steps, N_sg, replica_num)
-    global corltn_term1 = (corltn_term1/MC_steps)                                   #<sigma_i*sigma_j> -- average
-
-    corltn_term2 = repeat(spin_sum/MC_steps, 1, N_sg)                               #<sigma_i> -- average
-
-    corltn_term3 = reshape(spin_sum/MC_steps, (N_sg, replica_num))' |>  Array
-    corltn_term3 = repeat(corltn_term3, inner = (N_sg, 1))                          #Scalar indexing - less time consum$
-    corltn_term3 = corltn_term3 |> CuArray                                          #<sigma_j>
-
-    global spatial_corltn = corltn_term1 .- (corltn_term2 .* corltn_term3)
-
-    return spatial_corltn
-end
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#CALCULATION OF DISTANCE BETWEEN TWO SPINS 
-function distance_calculation()
-    x_j = reshape(x_pos_sg, (N_sg, replica_num))' |>  Array
-    x_j = repeat(x_j, inner = (N_sg, 1))                                  #Scalar indexing - less time consuming
-    x_j = x_j |> CuArray
-
-    y_j = reshape(y_pos_sg, (N_sg, replica_num))' |>  Array
-    y_j = repeat(y_j, inner = (N_sg, 1))                                  #Scalar indexing - less time consuming
-    y_j = y_j |> CuArray
-
-    global distance_ij = sqrt.((x_pos_sg .- x_j).^2 .+ (y_pos_sg .- y_j).^2)
-    
-    return distance_ij
-end
+#MATRIX FOR STORING DATA
+susceptibility = zeros(length(Temp_values), 1)
+magnetization = zeros(length(Temp_values), 1)
+EA_order_parameter = zeros(length(Temp_values), 1)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MAIN BODY
+calculate_dipole_energy()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
 
-#MC BURN STEPS
-@CUDA.allowscalar for j in 1:MC_burns
+@CUDA.allowscalar for i in eachindex(Temp_values)                               #TEMPERATURE LOOP 
+    
+    global Temp_index = i
+    global Temp = Temp_values[Temp_index] 
 
-    one_MC(rng, Temp)
+    #MC BURN STEPS
+    @CUDA.allowscalar for j in 1:MC_burns
+
+        one_MC(rng, Temp)
+
+    end
+
+    plot_spin_config(Temp)                                                      #PLOTTING SPIN CONFIGURATION AFTER NC BURN STEPS
+
+    #-----------------------------------------------------------#
+
+    #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
+    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray
+    global spin_sqr_sum = zeros(N_sg*replica_num, 1) |> CuArray
+
+    #-----------------------------------------------------------#
+
+    @CUDA.allowscalar for j in 1:MC_steps
+
+        one_MC(rng, Temp)                                                     #MONTE CARLO FUNCTION 
+        spin_sum += x_dir_sg
+        spin_sqr_sum += x_dir_sg.^2
+
+    end
+    #-----------------------------------------------------------#
+
+    spin_sum_sqr = (spin_sum/MC_steps).^2
+    spin_sqr_sum = spin_sqr_sum/MC_steps
+
+    suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
+    EA_order_parameter[Temp_index] = sum(spin_sum_sqr)/(N_sg*replica_num)
+    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
+    susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp_values[Temp_index])
 
 end
-
-#-----------------------------------------------------------#
-
-#Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
-global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
-global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray                         #<sigma_i>
-
-#-----------------------------------------------------------#
-
-@CUDA.allowscalar for j in 1:MC_steps
-
-    one_MC(rng, Temp)                                                     #MONTE CARLO FUNCTION 
-    spatial_correlation_terms(N_sg, replica_num)
-end
-#-----------------------------------------------------------#
-
-spatial_correlation_claculation(MC_steps, N_sg, replica_num)
-distance_calculation()
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #SAVING THE GENERATED DATA
-open("2D_EA_suscep_20x20_MC100K_B4.0_4x4.txt", "w") do io 					#creating a file to save data
+open("2D_EA_suscep_20x20_MC100K_B1.0_4x4.txt", "w") do io 					#creating a file to save data
    for i in 1:length(Temp_values)
       println(io,i,"\t", Temp_values[i],"\t", susceptibility[i],"\t", magnetization[i], "\t", EA_order_parameter[i])
    end
 end
-
-
-
 
