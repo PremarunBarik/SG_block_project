@@ -6,7 +6,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
 #FERROMAGNETIC BLOCK FIELD INTENSITY
-global field_intensity = 4.00
+global field_intensity = 0.00
 
 rng = MersenneTwister()
 
@@ -18,18 +18,19 @@ MC_steps = 100000
 MC_burns = 100000
 
 #TEMPERATURE VALUES
-min_Temp = 0.1
-max_Temp = 2.0
-Temp_step = 50
-Temp_interval = (max_Temp - min_Temp)/Temp_step
-Temp_values = collect(min_Temp:Temp_interval:max_Temp)
-Temp_values = reverse(Temp_values)
+Temp = 0.4
+#min_Temp = 0.1
+#max_Temp = 2.0
+#Temp_step = 50
+#Temp_interval = (max_Temp - min_Temp)/Temp_step
+#Temp_values = collect(min_Temp:Temp_interval:max_Temp)
+#Temp_values = reverse(Temp_values)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 10
-n_y = 10
+n_x = 20
+n_y = 20
 n_z = 1
 
 N_sg = n_x*n_y
@@ -162,7 +163,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random
+                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                #for ising: 1, for spin glas: random
             end
         end
     end
@@ -327,59 +328,111 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX FOR STORING DATA
-susceptibility = zeros(length(Temp_values), 1)
-magnetization = zeros(length(Temp_values), 1)
-EA_order_parameter = zeros(length(Temp_values), 1)
+#creating a matrix with zero diagonal terms  to calculate the correlation terms
+diag_zero = fill(1, (N_sg, N_sg)) |> CuArray
+diag_zero[diagind(diag_zero)] .= 0
+global  diag_zero = repeat(diag_zero, replica_num, 1)
+
+#Put inside the MC loop, after the MC function - Calculation of spatial correlation function terms
+function spatial_correlation_terms(N_sg, replica_num)
+    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
+    spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                  #Scalar indexing - less time consum$
+    spin_mux = spin_mux |> CuArray
+
+    global corltn_term1 += x_dir_sg .* spin_mux                                     #sum of sigma_i*sigma_j
+
+    global spin_sum += x_dir_sg                                                     # sum of sigma_i
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#put outside the MC loop, just at the end of MC loop, Inside the temp loop - Calculation of spatial coorelation function
+function spatial_correlation_claculation(MC_steps, N_sg, replica_num)
+    global corltn_term1 = (corltn_term1/MC_steps)                                   #<sigma_i*sigma_j> -- average
+
+    corltn_term2 = repeat(spin_sum/MC_steps, 1, N_sg)                               #<sigma_i> -- average
+
+    corltn_term3 = reshape(spin_sum/MC_steps, (N_sg, replica_num))' |>  Array
+    corltn_term3 = repeat(corltn_term3, inner = (N_sg, 1))                          #Scalar indexing - less time consum$
+    corltn_term3 = corltn_term3 |> CuArray                                          #<sigma_j>
+
+    global spatial_corltn = corltn_term1 .- (corltn_term2 .* corltn_term3)
+
+    return spatial_corltn
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#CALCULATION OF DISTANCE BETWEEN TWO SPINS 
+function distance_calculation(N_sg, replica_num)
+    x_j = x_pos_sg' |>  Array
+    x_j = repeat(x_j, N_sg, 1)                                  #Scalar indexing - less time consuming
+
+    y_j = y_pos_sg' |>  Array
+    y_j = repeat(y_j, N_sg, 1)                                  #Scalar indexing - less time consuming
+
+    distance_ij = sqrt.((x_pos_sg .- x_j).^2 .+ (y_pos_sg .- y_j).^2)
+    distance_ij = distance_ij |> Array
+
+    #matrix to keep track of the sorted distance
+    sorted_index = zeros(N_sg*replica_num, N_sg) |> Array
+
+    for rows in 1:N_sg*replica_num
+        global sorted_index[rows,:] = sortperm(distance_ij[rows,:])
+    end
+    global sorted_index = round.(Int64, sorted_index)
+    global sorted_index = repeat(sorted_index, N_sg, 1)
+
+    global distance_ij = sort(distance_ij, dims=2)
+
+    return distance_ij
+end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MAIN BODY
-@CUDA.allowscalar for i in eachindex(Temp_values)                              #TEMPERATURE LOOP 
-    
-    global Temp_index = i
-    global Temp = Temp_values[Temp_index] 
 
-    #MC BURN STEPS
-    @CUDA.allowscalar for j in 1:MC_burns
+#MC BURN STEPS
+@CUDA.allowscalar for j in 1:MC_burns
 
-        one_MC(rng, Temp)
-
-    end
-
-    #-----------------------------------------------------------#
-
-    #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
-    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray
-    global spin_sqr_sum = zeros(N_sg*replica_num, 1) |> CuArray
-
-    #-----------------------------------------------------------#
-
-    @CUDA.allowscalar for j in 1:MC_steps
-
-        one_MC(rng, Temp)                                                     #MONTE CARLO FUNCTION 
-        spin_sum += x_dir_sg
-        spin_sqr_sum += x_dir_sg.^2
-
-    end
-    #-----------------------------------------------------------#
-
-    spin_sum_sqr = (spin_sum/MC_steps).^2
-    spin_sqr_sum = spin_sqr_sum/MC_steps
-
-    suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
-    EA_order_parameter[Temp_index] = sum(spin_sum_sqr)/(N_sg*replica_num)
-    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
-    susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp_values[Temp_index])
+    one_MC(rng, Temp)
 
 end
+
+#-----------------------------------------------------------#
+
+#Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
+global corltn_term1 = zeros(N_sg*replica_num, N_sg) |> CuArray                  #<sigma_i*sigma_j>
+global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray                         #<sigma_i>
+
+#-----------------------------------------------------------#
+
+@CUDA.allowscalar for j in 1:MC_steps
+
+    one_MC(rng, Temp)                                                     #MONTE CARLO FUNCTION 
+    spatial_correlation_terms(N_sg, replica_num)
+end
+#-----------------------------------------------------------#
+
+spatial_correlation_claculation(MC_steps, N_sg, replica_num)
+distance_calculation()
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
+distance_ij = reshape(distance_ij, N_sg*N_sg*replica_num, 1) |> Array
+spatial_corltn = reshape(spatial_corltn, N_sg*N_sg*replica_num, 1) |> Array
+
 #SAVING THE GENERATED DATA
-open("2D_EA_suscep_20x20_MC100K_B4.0_4x4.txt", "w") do io 					#creating a file to save data
-   for i in 1:length(Temp_values)
-      println(io,i,"\t", Temp_values[i],"\t", susceptibility[i],"\t", magnetization[i], "\t", EA_order_parameter[i])
+open("2D_EA_SpatialCorrelation_T0.4.txt", "w") do io 					#creating a file to save data
+   for i in 1:(N_sg*N_sg*replica_num)
+      println(io,i,"\t", distance_ij[i],"\t", spatial_corltn[i])
    end
 end
+
+
+
+scatter(distance_ij, spatial_corltn, label="Temp:0.4", legendfont=font(14))
+xlabel!("Distance (r)", guidefont=font(14), xtickfont=font(12))
+xlabel!("Spatial Coorelation function (Cs)", guidefont=font(14), xtickfont=font(12))
+savefig("SpatialCorrelation_T0.4.png")
 
