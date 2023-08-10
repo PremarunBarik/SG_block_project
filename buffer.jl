@@ -205,7 +205,7 @@ global energy_RKKY = zeros(N_sg*replica_num, 1) |> Array
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE TOTAL ENERGY OF THE SYSTEM
-function compute_tot_energy_spin_glass()
+function compute_RKKY_energy_spin_glass()
     r_s = (mx_sg.-1).*N_sg .+ NN_s
     r_n = (mx_sg.-1).*N_sg .+ NN_n 
     r_e = (mx_sg.-1).*N_sg .+ NN_e 
@@ -222,31 +222,22 @@ end
 
 #MATRIX TO STORE TOTAL ENERGY
 global energy_tot = zeros(N_sg*replica_num, 1) |> Array
-#MATRIX TO STORE DELTA ENERGY
-global del_energy = zeros(replica_num, 1) |> Array
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE THE ENERGY CHANGE OF THE SYSTEM
-function compute_del_energy_spin_glass(rng)
-    compute_tot_energy_spin_glass()
+function compute_tot_energy_spin_glass()
+    compute_RKKY_energy_spin_glass()
 
     global energy_tot = 2*(energy_RKKY .+ (dipole_field .* x_dir_sg))
 
-    global rand_pos =  Array(rand(rng, (1:N_sg), (replica_num, 1)))
-    global r = rand_pos .+ rand_rep_ref
-
-    global del_energy = energy_tot[r]
-
-    return del_energy
+    return energy_tot
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE DELTA ENERGY
 global trans_rate = Array(zeros(replica_num, 1))
-#Matrix to keep track of which flipped how many times
-global flip_count = Array(zeros(N_sg*replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -278,3 +269,62 @@ function one_MC_kmc(rng, N_sg, replica_num, Temp)
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
+
+#MATRIX FOR STORING DATA
+susceptibility = zeros(length(Temp_values), 1)
+magnetization = zeros(length(Temp_values), 1)
+EA_order_parameter = zeros(length(Temp_values), 1)
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#MAIN BODY
+calculate_dipole_field()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
+
+@CUDA.allowscalar for i in eachindex(Temp_values)                               #TEMPERATURE LOOP 
+    
+    global Temp_index = i
+    global Temp = Temp_values[Temp_index] 
+
+    #MC BURN STEPS
+    @CUDA.allowscalar for j in 1:MC_burns
+
+        one_MC_kmc(rng, N_sg, replica_num, Temp)
+
+    end
+
+    #-----------------------------------------------------------#
+
+    #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
+    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray
+    global spin_sqr_sum = zeros(N_sg*replica_num, 1) |> CuArray
+
+    #-----------------------------------------------------------#
+
+    @CUDA.allowscalar for j in 1:MC_steps
+
+        one_MC_kmc(rng, N_sg, replica_num, Temp)                                                 #MONTE CARLO FUNCTION 
+        spin_sum += x_dir_sg
+        spin_sqr_sum += x_dir_sg.^2
+
+    end
+    #-----------------------------------------------------------#
+
+    spin_sum_sqr = (spin_sum/MC_steps).^2
+    spin_sqr_sum = spin_sqr_sum/MC_steps
+
+    suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
+    EA_order_parameter[Temp_index] = sum(spin_sum_sqr)/(N_sg*replica_num)
+    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
+    susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp_values[Temp_index])
+
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#SAVING THE GENERATED DATA
+open("2D_EA_suscep_10x10_KMC100K_B0.0.txt", "w") do io 					#creating a file to save data
+    for i in 1:length(Temp_values)
+       println(io,i,"\t", Temp_values[i],"\t", susceptibility[i],"\t", magnetization[i], "\t", EA_order_parameter[i])
+    end
+ end
+
