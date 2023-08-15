@@ -10,15 +10,15 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 rng = MersenneTwister()
 
 #NUMBER OF REPLICAS 
-replica_num = 50
+replica_num = 10
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 100000
-MC_burns = 100000
+MC_steps = 50000
+MC_burns = 10000
 
 #TEMPERATURE VALUES
-min_Temp = 0.1
-max_Temp = 2.0
+min_Temp = 1.7
+max_Temp = 2.7 
 Temp_step = 50
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = collect(min_Temp:Temp_interval:max_Temp)
@@ -55,7 +55,7 @@ x_dir_sg = repeat(x_dir_sg, replica_num, 1)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #REFERENCE POSITION OF THE SPIN ELEMENTS IN MATRIX
-mx_sg = CuArray(collect(1:N_sg*replica_num))
+mx_sg = Array(collect(1:N_sg*replica_num))
 
 #REFERENCE POSITION OF THE SPIN ELEMENTS IN GEOMETRY
 x_pos_sg = zeros(N_sg, 1)
@@ -123,7 +123,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random
+                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
             end
         end
     end
@@ -148,22 +148,22 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #CHANGING ALL THE MATRICES TO CU_ARRAY 
-global x_dir_sg = CuArray(x_dir_sg)
+global x_dir_sg = Array(x_dir_sg)
 #global y_dir_sg = CuArray(y_dir_sg)
 #global z_dir_sg = CuArray(z_dir_sg)
 
-global x_pos_sg = CuArray(x_pos_sg)
-global y_pos_sg = CuArray(y_pos_sg)
+global x_pos_sg = Array(x_pos_sg)
+global y_pos_sg = Array(y_pos_sg)
 
-NN_s = CuArray{Int64}(NN_s)
-NN_n = CuArray{Int64}(NN_n)
-NN_e = CuArray{Int64}(NN_e)
-NN_w = CuArray{Int64}(NN_w)
+NN_s = Array{Int64}(NN_s)
+NN_n = Array{Int64}(NN_n)
+NN_e = Array{Int64}(NN_e)
+NN_w = Array{Int64}(NN_w)
 
-J_NN = CuArray(J_NN)
+J_NN = Array(J_NN)
 
-spin_rep_ref = CuArray{Int64}(spin_rep_ref)
-rand_rep_ref = CuArray{Int64}(rand_rep_ref)
+spin_rep_ref = Array{Int64}(spin_rep_ref)
+rand_rep_ref = Array{Int64}(rand_rep_ref)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -256,7 +256,7 @@ function one_MC_kmc(rng, N_sg, replica_num, Temp)
     trans_prob = glauber[loc] |> Array
     trans_prob_ps = cumsum(trans_prob, dims=1)
 
-    @CUDA.allowscalar for k in 1:replica_num
+    for k in 1:replica_num
         chk = rand(rng, Float64)*trans_prob_ps[N_sg,k]
         for l in 1:N_sg
             if chk <= trans_prob_ps[l,k]
@@ -278,15 +278,15 @@ EA_order_parameter = zeros(length(Temp_values), 1)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MAIN BODY
-calculate_dipole_field()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
+#calculate_dipole_field()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
 
-@CUDA.allowscalar for i in eachindex(Temp_values)                               #TEMPERATURE LOOP 
+for i in eachindex(Temp_values)                               #TEMPERATURE LOOP 
     
     global Temp_index = i
     global Temp = Temp_values[Temp_index] 
 
     #MC BURN STEPS
-    @CUDA.allowscalar for j in 1:MC_burns
+    for j in 1:MC_burns
 
         one_MC_kmc(rng, N_sg, replica_num, Temp)
 
@@ -295,36 +295,29 @@ calculate_dipole_field()                                                       #
     #-----------------------------------------------------------#
 
     #Initilization inside the temp loop, before MC loop - Calculation of spatial correlation function
-    global spin_sum = zeros(N_sg*replica_num, 1) |> CuArray
-    global spin_sqr_sum = zeros(N_sg*replica_num, 1) |> CuArray
+    global spin_sum = zeros(1, replica_num) |> Array
 
     #-----------------------------------------------------------#
 
-    @CUDA.allowscalar for j in 1:MC_steps
+    for j in 1:MC_steps
 
         one_MC_kmc(rng, N_sg, replica_num, Temp)                                                 #MONTE CARLO FUNCTION 
-        spin_sum += x_dir_sg
-        spin_sqr_sum += x_dir_sg.^2
+        spin_sum += abs.(sum(reshape(x_dir_sg, (N_sg,replica_num)), dims=1)/N_sg)
 
     end
     #-----------------------------------------------------------#
 
-    spin_sum_sqr = (spin_sum/MC_steps).^2
-    spin_sqr_sum = spin_sqr_sum/MC_steps
-
-    suscep_calculation = (spin_sqr_sum .- spin_sum_sqr)
-    EA_order_parameter[Temp_index] = sum(spin_sum_sqr)/(N_sg*replica_num)
-    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*N_sg*replica_num)
-    susceptibility[Temp_index] = sum(suscep_calculation)/(N_sg*replica_num*Temp_values[Temp_index])
-
+    magnetization[Temp_index] = sum(spin_sum)/(MC_steps*replica_num)
+    
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #SAVING THE GENERATED DATA
-open("2D_EA_suscep_10x10_KMC100K_B0.0.txt", "w") do io 					#creating a file to save data
-    for i in 1:length(Temp_values)
-       println(io,i,"\t", Temp_values[i],"\t", susceptibility[i],"\t", magnetization[i], "\t", EA_order_parameter[i])
-    end
- end
+#open("2D_EA_suscep_10x10_KMC100K_B0.0.txt", "w") do io 					#creating a file to save data
+#    for i in 1:length(Temp_values)
+#       println(io,i,"\t", Temp_values[i],"\t", susceptibility[i],"\t", magnetization[i], "\t", EA_order_parameter[i])
+#    end
+#end
 
+ plot(Temp_values, magnetization, label="Mag vs MC_steps for KMC")
