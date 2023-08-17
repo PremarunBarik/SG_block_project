@@ -319,3 +319,31 @@ function one_MC_kmc(rng, N_sg, replica_num, Temp)
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
+#function to create snap shot of transition rate distribution
+function plot_transition_rate()
+    histogram(glauber)
+    xlabel!("transition rate value")
+    ylabel!("Population of transition rate")
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+#MAIN BODY
+calculate_dipole_field()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
+
+#MC BURN STEPS
+for j in 1:MC_burns
+    one_MC_kmc(rng, N_sg, replica_num, Temp)
+end
+
+#-----------------------------------------------------------#
+
+#MC steps 
+anim = @animate for snaps in 1:10
+    plot_transition_rate()
+    for j in 1:(MC_steps/10)
+        one_MC_kmc(rng, N_sg, replica_num, Temp) 
+    end                                                #MONTE CARLO FUNCTION 
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+gif(anim, "transition_rate_T$(Temp)_B$(B_global)_$(x_num)x$(y_num).gif", fps=1)
