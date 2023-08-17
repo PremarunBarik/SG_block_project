@@ -27,10 +27,10 @@ Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = collect(min_Temp:Temp_interval:max_Temp)
 Temp_values = reverse(Temp_values)
 
-Temp = 3.1                                      #for fixed temperature calculation. meaning no temp loop
+Temp = 0.3                                      #for fixed temperature calculation. meaning no temp loop
 
 #GLOBALLY APPLIED FIELD
-global B_global = 0.05
+global B_global = 0.0
 #FERROMAGNETIC BLOCK FIELD INTENSITY
 global field_intensity = 0.0
 
@@ -168,7 +168,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
+                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
             end
         end
     end
@@ -326,12 +326,13 @@ function plot_transition_rate()
     histogram(glauber)
     xlabel!("transition rate value")
     ylabel!("Population of transition rate")
+    ylims!(0,500)
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#matrix for saving data 
-magnetization = zeros(MC_steps, 1) |> Array
+#MAIN BODY
+calculate_dipole_field()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
 
 #MC BURN STEPS
 for j in 1:MC_burns
@@ -341,26 +342,24 @@ for j in 1:MC_burns
 end
 
 #MC BURN STEPS
-for j in 1:MC_steps
-
-    one_MC_kmc(rng, N_sg, replica_num, Temp)
-
-    spin_av_per_replica = sum(reshape(x_dir_sg, (N_sg,replica_num)), dims=1)/N_sg |> Array
-    magnetization[j] = sum(spin_av_per_replica)/replica_num
-
+#MC steps 
+anim = @animate for snaps in 1:10
+    plot_transition_rate()
+    for j in 1:(MC_steps/10 |> Int64)
+        one_MC_kmc(rng, N_sg, replica_num, Temp) 
+    end                                                #MONTE CARLO FUNCTION 
 end
-
 #------------------------------------------------------------------------------------------------------------------------------#
 
-gif(anim, "transition_rate_T$(Temp)_B$(B_global)_$(x_num)x$(y_num).gif", fps=1)
+gif(anim, "transition_rate_T$(Temp)_Bloc$(field_intensity)_Bglob$(B_global)_$(n_x)x$(n_y).gif", fps=1)
 
-Mc_ref = collect(1: MC_steps)
-window_size = length(MC_ref)/100.0
+#Mc_ref = collect(1: MC_steps)
+#window_size = length(MC_ref)/100.0
 
-magnetization = vec(movmean(magnetization, window_size))
+#magnetization = vec(movmean(magnetization, window_size))
 
-plot(Mc_ref, magnetization, label="Temp: $Temp", linewidth=2, legendfont=font(12))
-xlabel!("MC steps", guidefont=font(14), xtickfont=font(14))
-ylabel!("Avg. magnetization <m>",  guidefont=font(14), ytickfont=font(14))
+#plot(Mc_ref, magnetization, label="Temp: $Temp", linewidth=2, legendfont=font(12))
+#xlabel!("MC steps", guidefont=font(14), xtickfont=font(14))
+#ylabel!("Avg. magnetization <m>",  guidefont=font(14), ytickfont=font(14))
 
 #------------------------------------------------------------------------------------------------------------------------------#
