@@ -111,13 +111,13 @@ global negative_y_pos_fm = y_pos_fm
 global positive_z_pos_fm = z_pos_fm
 global negative_z_pos_fm = z_pos_fm
 
-scatter(positive_x_pos_fm, positive_y_pos_fm)
-scatter!(negative_x_pos_fm, negative_y_pos_fm)
+#scatter(positive_x_pos_fm, positive_y_pos_fm)
+#scatter!(negative_x_pos_fm, negative_y_pos_fm)
 
                 #-----------------------------------------------------------#
 
 #initialization of Ewald-sum
-period_num = 1
+period_num = 3
 
 simulation_box_num = (2*period_num + 1)^2
 
@@ -145,7 +145,17 @@ positive_x_pos_fm = positive_x_pos_fm - x_pos_ES
 negative_x_pos_fm = negative_x_pos_fm - x_pos_ES
 
 positive_y_pos_fm = positive_y_pos_fm - y_pos_ES
-negative_y_pos_fm = negative_x_pos_fm - y_pos_ES
+negative_y_pos_fm = negative_y_pos_fm - y_pos_ES
 
-scatter!(positive_x_pos_fm, positive_y_pos_fm)
+                #-----------------------------------------------------------#
+
+scatter(positive_x_pos_fm, aspect_ratio=:equal, positive_y_pos_fm)
 scatter!(negative_x_pos_fm, negative_y_pos_fm)
+
+                #-----------------------------------------------------------#
+
+#plotting the central block
+
+plot!([0, n_x, n_x, 0, 0],[0, 0, n_y, n_y, 0], color=:red, legend=:none)
+
+savefig("Ewald_sum.png")
