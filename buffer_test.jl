@@ -1,4 +1,4 @@
-using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
+using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools, NaNStatistics
 
 
                     #*************************CPU CODE*****************************#
@@ -13,11 +13,11 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 rng = MersenneTwister()
 
 #NUMBER OF REPLICAS 
-replica_num = 50
+replica_num = 10
 
 #NUMBER OF MC MC STEPS 
-MC_steps = 50000
-MC_burns = 10000
+MC_steps = 1000
+MC_burns = 1000
 
 #TEMPERATURE VALUES
 min_Temp = 1.7
@@ -27,19 +27,20 @@ Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = collect(min_Temp:Temp_interval:max_Temp)
 Temp_values = reverse(Temp_values)
 
-Temp = 3.7                                      #for fixed temperature calculation. meaning no temp loop
+Temp = 3.5                                      #for fixed temperature calculation. meaning no temp loop
 
-#GLOBALLY APPLIED FIELD
-global B_global = 0.05
-#FERROMAGNETIC BLOCK FIELD INTENSITY
-global field_intensity = 0.0
+#GLOBALLY APPLIED FIELD -- field intensity of globally applied field
+global B_global = 0.0                         
+#FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
+global field_intensity = 0.0                    
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 10
-n_y = 10
+n_x = 4
+n_y = 4
 n_z =1
+N_sg = n_x*n_y
 
 #SPIN ELEMENT DIRECTION IN REPLICAS
 x_dir_sg = [(-1)^rand(rng, Int64) for i in 1:N_sg] 
@@ -78,8 +79,8 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 #INITIALIZATION OF FERROMAGNETIC BLOCKS
-x_num = 2                                                       #number of blocks along X axis 
-y_num = 2                                                       #number of blocks along Y axis
+x_num = 1                                                       #number of blocks along X axis 
+y_num = 1                                                       #number of blocks along Y axis
 N_fm = x_num*y_num
 
 x_dist = n_x/x_num                                              #distance between two blocks along x axis 
@@ -112,6 +113,76 @@ global negative_z_pos_fm = z_pos_fm
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
+#initialization of Ewald-sum
+function Ewald_sum_initialize()
+    global period_num = 100                         #number of periods to consider for ewald sum
+    
+    global simulation_box_num = (2*period_num + 1)^2
+    
+    x_pos_ES = n_x*collect(-period_num:1:period_num)
+    x_pos_ES = repeat(x_pos_ES, inner=(2*period_num + 1))
+    x_pos_ES = repeat(x_pos_ES, outer=N_fm)
+    
+    y_pos_ES = n_y*collect(-period_num:1:period_num)
+    y_pos_ES = repeat(y_pos_ES, outer=(2*period_num +1))
+    y_pos_ES = repeat(y_pos_ES, outer=N_fm)
+    
+                    #-----------------------------------------------------------#
+    
+    #initialization of image simulation boxes:
+    positive_x_pos_ES = repeat(positive_x_pos_fm, outer = simulation_box_num)
+    negative_x_pos_ES = repeat(negative_x_pos_fm, outer = simulation_box_num)
+    
+    positive_y_pos_ES = repeat(positive_y_pos_fm, outer = simulation_box_num)
+    negative_y_pos_ES = repeat(negative_y_pos_fm, outer = simulation_box_num)
+    
+    global positive_z_pos_ES = repeat(positive_z_pos_fm, outer = simulation_box_num)
+    global negative_z_pos_ES = repeat(negative_z_pos_fm, outer = simulation_box_num)
+    
+    global positive_x_pos_ES = positive_x_pos_ES - x_pos_ES
+    global negative_x_pos_ES = negative_x_pos_ES - x_pos_ES
+    
+    global positive_y_pos_ES = positive_y_pos_ES - y_pos_ES
+    global negative_y_pos_ES = negative_y_pos_ES - y_pos_ES
+    
+end
+    
+                #-----------------------------------------------------------#
+    
+#scatter(positive_x_pos_ES, positive_y_pos_ES, aspect_ratio=:equal)
+#scatter!(negative_x_pos_ES, negative_y_pos_ES)
+    
+#plotting the central block
+#display(plot!([0, n_x, n_x, 0, 0],[0, 0, n_y, n_y, 0], color=:red, legend=:none))
+    
+#------------------------------------------------------------------------------------------------------------------------------#
+    
+#CALCULATION OF MAGNETIC FIELD DUE TO DIPOLE
+function dipole_magnetic_field()
+    Ewald_sum_initialize()
+    
+    positive_distance = sqrt.( ((x_pos_sg .- positive_x_pos_ES').^2) .+ ((y_pos_sg .- positive_y_pos_ES').^2) .+ ((z_pos_sg .- positive_z_pos_ES').^2) )
+    negative_distance = sqrt.( ((x_pos_sg .- negative_x_pos_ES').^2) .+ ((y_pos_sg .- negative_y_pos_ES').^2) .+ ((z_pos_sg .- negative_z_pos_ES').^2) )
+    
+    q_positive = field_intensity
+    q_negative = -field_intensity
+    
+    B_x_positive = q_positive * (x_pos_sg .- positive_x_pos_ES')./positive_distance.^3
+    B_y_positive = q_positive * (y_pos_sg .- positive_y_pos_ES')./positive_distance.^3
+    
+    B_x_negative = q_negative * (x_pos_sg .- negative_x_pos_ES')./negative_distance.^3
+    B_y_negative = q_negative * (y_pos_sg .- negative_y_pos_ES')./negative_distance.^3
+    
+    B_x_tot = B_x_positive .+ B_x_negative
+    B_y_tot = B_y_positive .+ B_y_negative
+    
+    global B_x_tot = sum(B_x_tot, dims=2)
+    global B_y_tot = sum(B_y_tot, dims=2)
+    
+end
+    
+#------------------------------------------------------------------------------------------------------------------------------#
+    
 #ISING NEAR NEIGHBOUR CALCULATION
 NN_s = zeros(N_sg,1)
 NN_n = zeros(N_sg,1)
@@ -278,7 +349,7 @@ global energy_tot = zeros(N_sg*replica_num, 1) |> Array
 function compute_tot_energy_spin_glass()
     compute_RKKY_energy_spin_glass()
 
-    global energy_tot = 2*(energy_RKKY .+ (dipole_field .* x_dir_sg) .+ (B_global*x_dir_sg))
+    global energy_tot = (energy_RKKY .+ (dipole_field .* x_dir_sg) .+ (B_global*x_dir_sg))
 
     return energy_tot
 end
@@ -294,7 +365,7 @@ global glauber = Array(zeros(replica_num, 1))
 function one_MC_kmc(rng, N_sg, replica_num, Temp)
     compute_tot_energy_spin_glass()
 
-    trans_rate = exp.(-energy_tot/Temp)
+    trans_rate = exp.(-2*energy_tot/Temp)
     global glauber = trans_rate./(1 .+ trans_rate)
     loc = reshape(mx_sg, (N_sg,replica_num)) |> Array
 
@@ -319,31 +390,46 @@ function one_MC_kmc(rng, N_sg, replica_num, Temp)
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
+
 #function to create snap shot of transition rate distribution
 function plot_transition_rate()
-    histogram(glauber)
+    histogram(glauber, label="Temp:$Temp, B loc:$field_intensity")
     xlabel!("transition rate value")
     ylabel!("Population of transition rate")
+    ylims!(0,300)
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
+
 #MAIN BODY
 calculate_dipole_field()                                                       #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
 
 #MC BURN STEPS
 for j in 1:MC_burns
+
     one_MC_kmc(rng, N_sg, replica_num, Temp)
+
 end
 
-#-----------------------------------------------------------#
-
+#MC BURN STEPS
 #MC steps 
-anim = @animate for snaps in 1:10
-    plot_transition_rate()
-    for j in 1:(MC_steps/10)
+for snaps in 1:10
+#    plot_transition_rate()
+    for j in 1:(MC_steps/10 |> Int64)
         one_MC_kmc(rng, N_sg, replica_num, Temp) 
     end                                                #MONTE CARLO FUNCTION 
 end
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#gif(anim, "transition_rate_T$(Temp)_Bloc$(field_intensity)_Bglob$(B_global)_$(n_x)x$(n_y)_close.gif", fps=1)
+
+#Mc_ref = collect(1: MC_steps)
+#window_size = length(MC_ref)/100.0
+
+#magnetization = vec(movmean(magnetization, window_size))
+
+#plot(Mc_ref, magnetization, label="Temp: $Temp", linewidth=2, legendfont=font(12))
+#xlabel!("MC steps", guidefont=font(14), xtickfont=font(14))
+#ylabel!("Avg. magnetization <m>",  guidefont=font(14), ytickfont=font(14))
 
 #------------------------------------------------------------------------------------------------------------------------------#
-gif(anim, "transition_rate_T$(Temp)_B$(B_global)_$(x_num)x$(y_num).gif", fps=1)
