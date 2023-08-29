@@ -181,12 +181,12 @@ B_start_y = y_pos_sg .- (B_y_tot/2)
 #savefig("Field_histogram_B$(field_intensity)_period$(period_num).png")
 
 #------------------------------------------------------------------------------------------------------------------------------#
-#magnetic field without ewald sum
+#magnetic field without Ewald sum
 #global period_num = 0
 #dipole_magnetic_field()
 #B_0 = B_x_tot
 
-#comparing the change in magnetic field dew to increasing ewald sum period
+# Comparing the change in the magnetic field due to increasing Ewald sum period
 #for i in 0:10
 #    global period_num = i 
 
