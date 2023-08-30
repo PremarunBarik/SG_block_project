@@ -11,8 +11,10 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #This script applies only with 3 or more than 3 layers of spin glass material
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
-#FERROMAGNETIC BLOCK FIELD INTENSITY
-global field_intensity_mx = [0.0, 0.4, 1.2, 2.0]
+#FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
+global field_intensity_mx = [0.0, 0.4, 1.2]
+#GLOBALLY APPLIED FIELD -- field intensity of globally applied field
+global B_global = 0.0    
 
 rng = MersenneTwister()
 
@@ -24,7 +26,7 @@ global MC_steps = 100000
 global MC_burns = 100000
 
 #TEMPERATURE VALUES
-global Temp_mx = [0.15, 0.2, 0.3]
+global Temp_mx = [0.3, 0.7, 1.2, 1.5]
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -73,8 +75,8 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #INITIALIZATION OF FERROMAGNETIC BLOCKS
-x_num = 2                                                       #number of blocks along X axis 
-y_num = 2                                                       #number of blocks along Y axis
+x_num = 1                                                       #number of blocks along X axis 
+y_num = 1                                                       #number of blocks along Y axis
 N_fm = x_num*y_num
 
 x_dist = n_x/x_num                                              #distance between two blocks along x axis 
@@ -104,6 +106,84 @@ global negative_y_pos_fm = y_pos_fm
 
 global positive_z_pos_fm = z_pos_fm
 global negative_z_pos_fm = z_pos_fm
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#initialization of Ewald-sum
+function Ewald_sum_initialize()
+    global period_num = 100                         #number of periods to consider for ewald sum
+    
+    global simulation_box_num = (2*period_num + 1)^2
+    
+    x_pos_ES = n_x*collect(-period_num:1:period_num)
+    x_pos_ES = repeat(x_pos_ES, inner=(2*period_num + 1))
+    x_pos_ES = repeat(x_pos_ES, outer=N_fm)
+    
+    y_pos_ES = n_y*collect(-period_num:1:period_num)
+    y_pos_ES = repeat(y_pos_ES, outer=(2*period_num +1))
+    y_pos_ES = repeat(y_pos_ES, outer=N_fm)
+    
+                    #-----------------------------------------------------------#
+    
+    #initialization of image simulation boxes:
+    positive_x_pos_ES = repeat(positive_x_pos_fm, outer = simulation_box_num)
+    negative_x_pos_ES = repeat(negative_x_pos_fm, outer = simulation_box_num)
+    
+    positive_y_pos_ES = repeat(positive_y_pos_fm, outer = simulation_box_num)
+    negative_y_pos_ES = repeat(negative_y_pos_fm, outer = simulation_box_num)
+    
+    global positive_z_pos_ES = repeat(positive_z_pos_fm, outer = simulation_box_num)
+    global negative_z_pos_ES = repeat(negative_z_pos_fm, outer = simulation_box_num)
+    
+    global positive_x_pos_ES = positive_x_pos_ES - x_pos_ES
+    global negative_x_pos_ES = negative_x_pos_ES - x_pos_ES
+    
+    global positive_y_pos_ES = positive_y_pos_ES - y_pos_ES
+    global negative_y_pos_ES = negative_y_pos_ES - y_pos_ES
+    
+end
+    
+                #-----------------------------------------------------------#
+    
+#scatter(positive_x_pos_ES, positive_y_pos_ES, aspect_ratio=:equal)
+#scatter!(negative_x_pos_ES, negative_y_pos_ES)
+    
+#plotting the central block
+#display(plot!([0, n_x, n_x, 0, 0],[0, 0, n_y, n_y, 0], color=:red, legend=:none))
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#MATRIX TO STORE ENERGY DUE TO MAGNETIC BLOCKS
+global dipole_field = zeros(N_sg*replica_num, 1) |> Array
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#CALCULATION OF MAGNETIC FIELD DUE TO DIPOLE
+function dipole_magnetic_field()
+    Ewald_sum_initialize()
+    
+    positive_distance = sqrt.( ((x_pos_sg .- positive_x_pos_ES').^2) .+ ((y_pos_sg .- positive_y_pos_ES').^2) .+ ((z_pos_sg .- positive_z_pos_ES').^2) )
+    negative_distance = sqrt.( ((x_pos_sg .- negative_x_pos_ES').^2) .+ ((y_pos_sg .- negative_y_pos_ES').^2) .+ ((z_pos_sg .- negative_z_pos_ES').^2) )
+    
+    q_positive = field_intensity
+    q_negative = -field_intensity
+    
+    B_x_positive = q_positive * (x_pos_sg .- positive_x_pos_ES')./positive_distance.^3
+    B_y_positive = q_positive * (y_pos_sg .- positive_y_pos_ES')./positive_distance.^3
+    
+    B_x_negative = q_negative * (x_pos_sg .- negative_x_pos_ES')./negative_distance.^3
+    B_y_negative = q_negative * (y_pos_sg .- negative_y_pos_ES')./negative_distance.^3
+    
+    B_x_tot = B_x_positive .+ B_x_negative
+    B_y_tot = B_y_positive .+ B_y_negative
+    
+    global dipole_field_x = sum(B_x_tot, dims=2) 
+    global dipole_field_y = sum(B_y_tot, dims=2) 
+    
+    global dipole_field = repeat(dipole_field_x, replica_num, 1) |> Array
+
+    return dipole_field
+end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -214,45 +294,13 @@ rand_rep_ref = Array{Int64}(rand_rep_ref)
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX TO STORE ENERGY DUE TO MAGNETIC BLOCKS
-global dipole_field = zeros(N_sg*replica_num, 1) |> Array
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
-#CALCULATION OF ENERGY DUE TO FERROMAGNETIC BLOCKS AS DIPOLES
-function calculate_dipole_field()
-    positive_distance = sqrt.( ((x_pos_sg .- positive_x_pos_fm').^2) .+ ((y_pos_sg .- positive_y_pos_fm').^2) .+ ((z_pos_sg .- positive_z_pos_fm').^2))
-    negative_distance = sqrt.( ((x_pos_sg .- negative_x_pos_fm').^2) .+ ((y_pos_sg .- negative_y_pos_fm').^2) .+ ((z_pos_sg .- negative_z_pos_fm').^2))
-
-    q_positive = field_intensity
-    q_negative = -field_intensity
-
-    B_x_positive = q_positive * (x_pos_sg .- positive_x_pos_fm')./(positive_distance.^3)
-    B_y_positive = q_positive * (y_pos_sg .- positive_y_pos_fm')./positive_distance.^3
-
-    B_x_negative = q_negative * (x_pos_sg .- negative_x_pos_fm')./(negative_distance.^3)
-    B_y_negative = q_negative * (y_pos_sg .- negative_y_pos_fm')./negative_distance.^3
-
-    B_x_tot = B_x_positive .+ B_x_negative
-    B_y_tot = B_y_positive .+ B_y_negative
-
-    global dipole_field_x = sum(B_x_tot, dims=2) 
-    global dipole_field_y = sum(B_y_tot, dims=2) 
-    
-    global dipole_field = repeat(dipole_field_x, replica_num, 1) |> Array
-
-    return dipole_field
-end
-
-#------------------------------------------------------------------------------------------------------------------------------#
-
 #MATRIX TO STORE ENERGY DUE TO RKKY 
 global energy_RKKY = zeros(N_sg*replica_num, 1) |> Array
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE TOTAL ENERGY OF THE SYSTEM
-function compute_tot_energy_spin_glass()
+function compute_RKKY_energy_spin_glass()
     r_s = (mx_sg.-1).*N_sg .+ NN_s
     r_n = (mx_sg.-1).*N_sg .+ NN_n 
     r_e = (mx_sg.-1).*N_sg .+ NN_e 
@@ -269,6 +317,20 @@ end
 
 #MATRIX TO STORE TOTAL ENERGY
 global energy_tot = zeros(N_sg*replica_num, 1) |> Array
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#COMPUTE THE ENERGY CHANGE OF THE SYSTEM
+function compute_tot_energy_spin_glass()
+    compute_RKKY_energy_spin_glass()
+
+    global energy_tot = 2*(energy_RKKY .+ (dipole_field .* x_dir_sg) .+ (B_global*x_dir_sg))
+
+    return energy_tot
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
 #MATRIX TO STORE DELTA ENERGY
 global del_energy = zeros(replica_num, 1) |> Array
 
@@ -277,8 +339,6 @@ global del_energy = zeros(replica_num, 1) |> Array
 #COMPUTE THE ENERGY CHANGE OF THE SYSTEM
 function compute_del_energy_spin_glass(rng)
     compute_tot_energy_spin_glass()
-
-    global energy_tot = 2*(energy_RKKY .+ (dipole_field .* x_dir_sg))
 
     global rand_pos =  Array(rand(rng, (1:N_sg), (replica_num, 1)))
     global r = rand_pos .+ rand_rep_ref
@@ -290,8 +350,6 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX TO STORE DELTA ENERGY
-global trans_rate = Array(zeros(replica_num, 1))
 #Matrix to keep track of which flipped how many times
 global flip_count = Array(zeros(N_sg*replica_num, 1))
 
@@ -301,7 +359,7 @@ global flip_count = Array(zeros(N_sg*replica_num, 1))
 function one_MC(rng, Temp)                                           #benchmark time: 1.89ms (smallest)
     compute_del_energy_spin_glass(rng)
 
-    global trans_rate = exp.(-del_energy/Temp)
+    trans_rate = exp.(-del_energy/Temp)
     global rand_num_flip = Array(rand(rng, Float64, (replica_num, 1)))
     flipit = sign.(rand_num_flip .- trans_rate)
     global x_dir_sg[r] = flipit.*x_dir_sg[r]
@@ -312,8 +370,44 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
+#MATRIX TO STORE DELTA ENERGY
+global glauber = Array(zeros(replica_num, 1))
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#function to flip a spin using KMC subroutine
+function one_MC_kmc(rng, N_sg, replica_num, Temp)
+    compute_tot_energy_spin_glass()
+
+    trans_rate = exp.(-energy_tot/Temp)
+    global glauber = trans_rate./(1 .+ trans_rate)
+    loc = reshape(mx_sg, (N_sg,replica_num)) |> Array
+
+    for k in 1:replica_num
+        loc[:,k] = shuffle!(loc[:,k])
+    end
+
+    glauber_cpu = glauber |> Array
+    trans_prob = glauber_cpu[loc] |> Array
+    trans_prob_ps = cumsum(trans_prob, dims=1)
+
+    @CUDA.allowscalar for k in 1:replica_num
+        chk = rand(rng, Float64)*trans_prob_ps[N_sg,k]
+        for l in 1:N_sg
+            if chk <= trans_prob_ps[l,k]
+                x_dir_sg[loc[l,k]] = (-1)*x_dir_sg[loc[l,k]]
+                global flip_count[loc[l,k]] = flip_count[loc[l,k]] + 1
+            break
+            end
+        end
+    end
+
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
 #J-DISTRIBUTION AND SPIN CONFIGURATION PLOTTING
-function plot_spin_config(Temp)
+function plot_transition_rate(Temp)
     #COLOR PALETTE TO PLOT THE J DISTRIBUTION
     global color_palette = [:yellow, :cyan, :green]
     global J_NN_plot = Array{Int64}(J_NN[:,:,1] .+ 2) 
@@ -361,16 +455,20 @@ function plot_spin_config(Temp)
     global x_dir_sg_plot = x_dir_sg_plot |> Array
     global y_dir_sg_plot = y_dir_sg_plot |> Array
 
-    quiver!(x_pos_sg_start, y_pos_sg_start, quiver=(x_dir_sg_plot, y_dir_sg_plot), color=:blue, linewidth=1)
-    scatter!(positive_x_pos_fm, positive_y_pos_fm, label="+Qm(+1)", legendfont=font(14), xtickfont=font(12), ytickfont=font(12), markerstrokewidth=0, markersize=5, color=:red)
-    scatter!(negative_x_pos_fm, negative_y_pos_fm, label="-Qm(-1)", legendfont=font(14), xtickfont=font(12), ytickfont=font(12), markerstrokewidth=0, markersize=5, color=:purple)
+    #quiver!(x_pos_sg_start, y_pos_sg_start, quiver=(x_dir_sg_plot, y_dir_sg_plot), color=:blue, linewidth=1)
+    #scatter!(positive_x_pos_fm, positive_y_pos_fm, label="+Qm(+1)", legendfont=font(14), xtickfont=font(12), ytickfont=font(12), markerstrokewidth=0, markersize=5, color=:red)
+    #scatter!(negative_x_pos_fm, negative_y_pos_fm, label="-Qm(-1)", legendfont=font(14), xtickfont=font(12), ytickfont=font(12), markerstrokewidth=0, markersize=5, color=:purple)
 
     global B_start_x = x_pos_sg_plot .- (dipole_field_x/2)
     global B_start_y = y_pos_sg_plot .- (dipole_field_y/2)
 
+    global glauber = (glauber ./ sum(glauber))*100
+
+
     quiver!(B_start_x, B_start_y, quiver=(dipole_field_x, dipole_field_y), color=:gray)
+    scatter!(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=7, alpha=glauber, color=:red, label=false)
     
-    title!("Spin configuration at T:$Temp, Blocal:$field_intensity (2x2)")
+    title!("Transition rates at T:$Temp, Blocal:$field_intensity ")
 
     #savefig("config_T$Temp.png")
 end
@@ -442,31 +540,32 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MAIN BODY
-calculate_dipole_field()                                                        #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
+#dipole_magnetic_field()                                                        #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
 
 for l in eachindex(Temp_mx)
     global Temp = Temp_mx[l]    
     for i in eachindex(field_intensity_mx)
 
         global field_intensity = field_intensity_mx[i]
-        calculate_dipole_field()                                                        #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
+        dipole_magnetic_field()                                                        #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
 
         for j in 1:MC_burns                                                             #MC burn steps. Before starting the gif
-            one_MC(rng, Temp)
+            one_MC_kmc(rng, N_sg, replica_num, Temp)
         end
 
         #Matrix to keep track of which flipped how many times
         global flip_count = Array(zeros(N_sg*replica_num, 1))
 
-        for j in 1:10                                                                   #Monte carlo steps to take a snap shot      #for gif add 'anim = @animate'  before for loop
-#           plot_spin_config(Temp)
-            for k in 1:10000                                                            #Monte carlo steps to run inbetween two snapshots
-                one_MC(rng, Temp)                                                       #MONTE CARLO FUNCTION 
+        anim = @animate for snaps in 1:10                                                                   #Monte carlo steps to take a snap shot      #for gif add 'anim = @animate'  before for loop
+           plot_transition_rate(Temp)
+            for j in 1:(MC_steps/10 |> Int64)                                                            #Monte carlo steps to run inbetween two snapshots
+                one_MC_kmc(rng, N_sg, replica_num, Temp)                                                      #MONTE CARLO FUNCTION 
             end
         end
+        gif(anim, "Config_T$(Temp)_B$(field_intensity)_$(x_num)x$(y_num).gif", fps=1)
+
         flipping_count_plot(MC_steps)
     end
 end
 
-#gif(anim, "Config_T$(Temp)_B$(field_intensity)_$(x_num)x$(y_num).gif", fps=1)
 
