@@ -15,7 +15,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
 global field_intensity = 0.0
 #GLOBALLY APPLIED FIELD -- field intensity of globally applied field
-global B_global = 0.05    
+global B_global = 0.1    
 
 rng = MersenneTwister()
 
@@ -27,13 +27,13 @@ global MC_steps = 100000
 global MC_burns = 100000
 
 #TEMPERATURE VALUES
-global Temp = 0.9
+global Temp = 3.5
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 20
-n_y = 20
+n_x = 40
+n_y = 40
 n_z = 1
 
 N_sg = n_x*n_y
@@ -402,61 +402,40 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#find function
-function Find(x)
-    
-    y = x
-
-    while (labels[y |> Int64] != y)
-        y = labels[y |> Int64]
-    end
-
-    while (labels[x |> Int64] != x)
-        z = labels[x |> Int64]
-        labels[x |> Int64] = y
-        x = z
-    end
-
-    return y
-end
-
-                    #----------------------------------------------------------------#
-
-#union function
-function union(x, y)
-    labels[Find(x)] = Find(y)    
-end
-
-                    #----------------------------------------------------------------#
-
 #function to label a cluster
 function cluster_label(N_sg, replica_num)
 
     global largest_label = 0
     global cluster_label_sg = zeros(N_sg*replica_num, 1)
     global labels = collect(1:N_sg*replica_num)
+    global trial_num = N_sg
     
     cluster_NN_s = NN_s .+ spin_rep_ref
     cluster_NN_w = NN_w .+ spin_rep_ref
+    cluster_NN_e = NN_e .+ spin_rep_ref
+    cluster_NN_n = NN_n .+ spin_rep_ref
+
+    for trials in 1:trial_num
 
     for spins in 1:N_sg*replica_num
         if x_dir_sg[spins] == 1
-            west = cluster_label_sg[cluster_NN_w[spins] |> Int64]
-            south = cluster_label_sg[cluster_NN_s[spins] |> Int64]
-            if (west==0) && (south==0)
+            neighbor_label = [cluster_label_sg[cluster_NN_e[spins]], cluster_label_sg[cluster_NN_s[spins]], cluster_label_sg[cluster_NN_w[spins]], cluster_label_sg[cluster_NN_n[spins]]]
+            if (sum(neighbor_label) == 0) && (cluster_label_sg[spins] == 0)
                 largest_label += 1
                 cluster_label_sg[spins] = largest_label
-            elseif (west != 0) || (south == 0)
-                cluster_label_sg[spins] = Find(west)
-            elseif (west == 0) || (south != 0)
-                cluster_label_sg[spins] = Find(south)
             else
-                union(west, south)
-                cluster_label_sg[spins] = Find(west)
+                sort!(neighbor_label)
+                for neighbor in 1:4
+                    if neighbor_label[neighbor] != 0
+                        cluster_label_sg[spins] = neighbor_label[neighbor]
+                        break
+                    end
+                end
             end
         end
     end
-   
+    
+    end
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
@@ -466,7 +445,7 @@ function cluster_plot()
 
     global x_pos_sg_plot = x_pos_sg[1:N_sg] |> Array
     global y_pos_sg_plot = y_pos_sg[1:N_sg] |> Array
-    display(scatter(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=9, markershape=:square, alpha=cluster_label_sg/sum(cluster_label_sg)*30, color=:auto, colorbar=true, size=(400,400), aspect_ratio=:equal, framestyle=:box, label=false))
+    display(scatter(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=4.5, markershape=:square, alpha=cluster_label_sg/sum(cluster_label_sg)*20, color=:red, colorbar=true, size=(400,400), aspect_ratio=:equal, framestyle=:box, label=false))
    
     savefig("Cluster_config_Ising$(n_x)x$(n_y)_Temp$(Temp)_Bglobal$(B_global).png")
     
