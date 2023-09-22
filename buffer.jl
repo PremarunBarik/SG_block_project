@@ -15,7 +15,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
 global field_intensity = 0.0
 #GLOBALLY APPLIED FIELD -- field intensity of globally applied field
-global B_global = 0.1    
+global B_global_mx = [0.0, 0.5, 1.0]    
 
 rng = MersenneTwister()
 
@@ -27,13 +27,13 @@ global MC_steps = 100000
 global MC_burns = 100000
 
 #TEMPERATURE VALUES
-global Temp = 3.5
+global Temp_mx = [0.3, 0.7, 1.2, 1.5]
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 40
-n_y = 40
+n_x = 10
+n_y = 10
 n_z = 1
 
 N_sg = n_x*n_y
@@ -54,7 +54,7 @@ x_dir_sg = [(-1)^rand(rng, Int64) for i in 1:N_sg]
 #end
 #spin initialization -- for ising spins
 
-x_dir_sg = repeat(x_dir_sg, replica_num, 1)
+global x_dir_sg = repeat(x_dir_sg, replica_num, 1)
 #y_dir_sg = repeat(y_dir_sg, replica_num, 1)
 #z_dir_sg = repeat(z_dir_sg, replica_num, 1)
 
@@ -257,7 +257,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
+                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
             end
         end
     end
@@ -403,11 +403,11 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #function to label a cluster
-function cluster_label(N_sg, replica_num)
+function calculate_cluster_label(N_sg, replica_num)
 
     global largest_label = 0
-    global cluster_label_sg = zeros(N_sg*replica_num, 1)
-    global labels = collect(1:N_sg*replica_num)
+    global cluster_label_positive = zeros(N_sg*replica_num, 1)
+    global cluster_label_negative = zeros(N_sg*replica_num, 1)
     global trial_num = N_sg
     
     cluster_NN_s = NN_s .+ spin_rep_ref
@@ -415,56 +415,180 @@ function cluster_label(N_sg, replica_num)
     cluster_NN_e = NN_e .+ spin_rep_ref
     cluster_NN_n = NN_n .+ spin_rep_ref
 
-    for trials in 1:trial_num
+    #-----------------------------------------------------------#
 
+    for trials in 1:trial_num
     for spins in 1:N_sg*replica_num
         if x_dir_sg[spins] == 1
-            neighbor_label = [cluster_label_sg[cluster_NN_e[spins]], cluster_label_sg[cluster_NN_s[spins]], cluster_label_sg[cluster_NN_w[spins]], cluster_label_sg[cluster_NN_n[spins]]]
-            if (sum(neighbor_label) == 0) && (cluster_label_sg[spins] == 0)
+            neighbor_label = [cluster_label_positive[cluster_NN_e[spins]], cluster_label_positive[cluster_NN_s[spins]], cluster_label_positive[cluster_NN_w[spins]], cluster_label_positive[cluster_NN_n[spins]]]
+            if (sum(neighbor_label) == 0) && (cluster_label_positive[spins] == 0)
                 largest_label += 1
-                cluster_label_sg[spins] = largest_label
+                cluster_label_positive[spins] = largest_label
             else
                 sort!(neighbor_label)
                 for neighbor in 1:4
                     if neighbor_label[neighbor] != 0
-                        cluster_label_sg[spins] = neighbor_label[neighbor]
+                        cluster_label_positive[spins] = neighbor_label[neighbor]
+                        break
+                    end
+                end
+            end
+        end
+    end 
+    end
+
+    #-----------------------------------------------------------#
+
+    global largest_label = 0
+    
+    for trials in 1:trial_num
+    for spins in 1:N_sg*replica_num
+        if x_dir_sg[spins] == -1
+            neighbor_label = [cluster_label_negative[cluster_NN_e[spins]], cluster_label_negative[cluster_NN_s[spins]], cluster_label_negative[cluster_NN_w[spins]], cluster_label_negative[cluster_NN_n[spins]]]
+            if (sum(neighbor_label) == 0) && (cluster_label_negative[spins] == 0)
+                largest_label += 1
+                cluster_label_negative[spins] = largest_label
+            else
+                sort!(neighbor_label)
+                for neighbor in 1:4
+                    if neighbor_label[neighbor] != 0
+                        cluster_label_negative[spins] = neighbor_label[neighbor]
                         break
                     end
                 end
             end
         end
     end
-    
     end
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#function to calculate average cluster size
+function calculate_cluster_size()
+    calculate_cluster_label(N_sg, replica_num)
+
+    global cluster_size_positive = Array{Int64}(undef,0)
+    global cluster_label_number_positive = Array{Int64}(undef,0)
+    global cluster_size_negative = Array{Int64}(undef,0)
+    global cluster_label_number_negative = Array{Int64}(undef,0)
+
+    #-----------------------------------------------------------#
+
+    for clusters in 1:N_sg*replica_num
+        count = 0
+        for population in 1:N_sg*replica_num
+            if clusters == cluster_label_positive[population]
+                count += 1
+            end
+        end
+        if count!=0
+            push!(cluster_size_positive, count)
+            push!(cluster_label_number_positive, clusters)
+        end
+    end
+    
+    number_of_clusters = length(cluster_label_number_positive)
+    global cluster_label_number_positive_redefined = collect(1:number_of_clusters)
+
+    for clusters in 1:number_of_clusters
+        replace!(cluster_label_positive, cluster_label_number_positive[clusters]=>cluster_label_number_positive_redefined[clusters])
+    end
+
+    #-----------------------------------------------------------#
+
+    for clusters in 1:N_sg*replica_num
+        count = 0
+        for population in 1:N_sg*replica_num
+            if clusters == cluster_label_negative[population]
+                count += 1
+            end
+        end
+        if count!=0
+            push!(cluster_size_negative, count)
+            push!(cluster_label_number_negative, clusters)
+        end
+    end
+    
+    number_of_clusters = length(cluster_label_number_negative)
+    global cluster_label_number_negative_redefined = collect(1:number_of_clusters)
+
+    for clusters in 1:number_of_clusters
+        replace!(cluster_label_negative, cluster_label_number_negative[clusters]=>cluster_label_number_negative_redefined[clusters])
+    end
+
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #function to plot flipping count og spin glass local moments
 function cluster_plot()
+    calculate_cluster_size()
 
     global x_pos_sg_plot = x_pos_sg[1:N_sg] |> Array
     global y_pos_sg_plot = y_pos_sg[1:N_sg] |> Array
-    display(scatter(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=4.5, markershape=:square, alpha=cluster_label_sg/sum(cluster_label_sg)*20, color=:red, colorbar=true, size=(400,400), aspect_ratio=:equal, framestyle=:box, label=false))
+    scatter(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=14, markershape=:square, alpha=cluster_label_positive/cluster_label_number_positive_redefined[length(cluster_label_number_positive_redefined)]/2, color=:red, colorbar=true, size=(600,600), aspect_ratio=:equal, framestyle=:box, label=false)
+    scatter!(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=14, markershape=:square, alpha=cluster_label_negative/cluster_label_number_negative_redefined[length(cluster_label_number_negative_redefined)]/2, color=:blue, colorbar=true, size=(600,600), aspect_ratio=:equal, framestyle=:box, label=false)
    
-    savefig("Cluster_config_Ising$(n_x)x$(n_y)_Temp$(Temp)_Bglobal$(B_global).png")
+    global x_pos_sg_plot = x_pos_sg[1:N_sg] |> Array
+    global y_pos_sg_plot = y_pos_sg[1:N_sg] |> Array
+
+    global B_start_x = x_pos_sg_plot .- (dipole_field_x/2)
+    global B_start_y = y_pos_sg_plot .- (dipole_field_y/2)
+
+    quiver!(B_start_x, B_start_y, quiver=(dipole_field_x, dipole_field_y), color=:gray)
+    scatter!(positive_x_pos_fm, positive_y_pos_fm, markersize=10, label="positive charge", legend=:topright, markerstrokewidth=0,color=:green)
+    scatter!(negative_x_pos_fm, negative_y_pos_fm, markersize=10, label="negative charge", markerstrokewidth=0, color=:purple)
+    title!("    Defined clusters at (B local: $(field_intensity), Temp: $(Temp))")
+
+    #savefig("Cluster_config_SG$(n_x)x$(n_y)_Temp$(Temp)_Bglobal$(B_global).png")
     
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#main body
-dipole_magnetic_field()
+#function to plot cluster size bar plot
+function cluster_size_BarPlot()
+    calculate_cluster_label(N_sg, replica_num)
 
-for mc_burn in 1:MC_burns
+    lo = @layout [a b]
+    plot1 = bar(cluster_label_number_positive_redefined, 
+                sort(cluster_size_positive), 
+                label="Positive clusters, Bglob$(B_global)",
+                xlabel="Cluster number",
+                ylabel="Cluster size (number of spins)",
+                color=:red)
+    plot2 = bar(cluster_label_number_negative_redefined, 
+                sort(cluster_size_negative), 
+                label="Negative clusters, Bglob$(B_global)",
+                xlabel="Cluster number",
+                ylabel="Cluster size (number of spins)",
+                color=:blue)
+
+    plot(plot1, plot2, layout= lo)
+end
+
+#MAIN BODY
+#dipole_magnetic_field()
+
+for l in eachindex(Temp_mx)
+    global Temp = Temp_mx[l]    
+    for i in eachindex(B_global_mx)
+        global B_global = B_global_mx[i]
+
+for MC_burn in 1:MC_burns
     one_MC_kmc(rng, N_sg, replica_num, Temp)
 end
 
-for mc_step in 1:MC_steps
-    one_MC_kmc(rng, N_sg, replica_num, Temp)
+anim = @animate for snaps in 1:10
+    cluster_plot()
+    for j in 1:(MC_steps/10 |> Int64)
+        one_MC_kmc(rng, N_sg, replica_num, Temp)
+    end
 end
+gif(anim, "Cluster_size_BarPlot_T$(Temp)_B$(B_global).gif", fps=1)
 
-cluster_label(N_sg, replica_num)
-cluster_plot()
 
+end
+end
 #------------------------------------------------------------------------------------------------------------------------------#
