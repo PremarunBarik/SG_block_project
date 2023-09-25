@@ -13,9 +13,9 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
 #FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
-global field_intensity = 0.0
+global field_intensity_mx = [0.0, 0.4, 1.2, 2.0]
 #GLOBALLY APPLIED FIELD -- field intensity of globally applied field
-global B_global_mx = [0.0, 0.5, 1.0]    
+global B_global = 0.0   
 
 rng = MersenneTwister()
 
@@ -547,9 +547,9 @@ end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#function to plot cluster size bar plot
+#function to plot cluster size
 function cluster_size_BarPlot()
-    calculate_cluster_label(N_sg, replica_num)
+    calculate_cluster_size()
 
     lo = @layout [a b]
     plot1 = bar(cluster_label_number_positive_redefined, 
@@ -566,29 +566,35 @@ function cluster_size_BarPlot()
                 color=:blue)
 
     plot(plot1, plot2, layout= lo)
+    title!("Cluster size at Bloc$(field_intensity)")
 end
 
+#------------------------------------------------------------------------------------------------------------------------------#
 #MAIN BODY
-#dipole_magnetic_field()
+
 
 for l in eachindex(Temp_mx)
     global Temp = Temp_mx[l]    
-    for i in eachindex(B_global_mx)
-        global B_global = B_global_mx[i]
+    for i in eachindex(field_intensity_mx)
+        global field_intensity = field_intensity_mx[i]
+
+dipole_magnetic_field()
 
 for MC_burn in 1:MC_burns
     one_MC_kmc(rng, N_sg, replica_num, Temp)
 end
 
 anim = @animate for snaps in 1:10
-    cluster_plot()
+    
     for j in 1:(MC_steps/10 |> Int64)
         one_MC_kmc(rng, N_sg, replica_num, Temp)
     end
+    cluster_size_BarPlot()
+    
 end
-gif(anim, "Cluster_size_BarPlot_T$(Temp)_B$(B_global).gif", fps=1)
+gif(anim, "Cluster_size_BarPlot_T$(Temp)_Bloc$(field_intensity).gif", fps=1)
 
+end
+end
 
-end
-end
 #------------------------------------------------------------------------------------------------------------------------------#
