@@ -13,7 +13,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
 #FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
-global field_intensity_mx = [0.0, 0.4, 1.2, 2.0]
+global field_intensity_mx = [0.0]
 #GLOBALLY APPLIED FIELD -- field intensity of globally applied field
 global B_global = 0.0   
 
@@ -27,13 +27,13 @@ global MC_steps = 100000
 global MC_burns = 100000
 
 #TEMPERATURE VALUES
-global Temp_mx = [0.3, 0.7, 1.2, 1.5]
+global Temp_mx = [4.6]
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 10
-n_y = 10
+n_x = 20
+n_y = 20
 n_z = 1
 
 N_sg = n_x*n_y
@@ -257,7 +257,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
+                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
             end
         end
     end
@@ -517,6 +517,9 @@ function calculate_cluster_size()
         replace!(cluster_label_negative, cluster_label_number_negative[clusters]=>cluster_label_number_negative_redefined[clusters])
     end
 
+    global cluster_dist_positive = append!(cluster_dist_positive, cluster_size_positive)
+    global cluster_dist_negative = append!(cluster_dist_negative, cluster_size_negative)
+
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
@@ -525,10 +528,14 @@ end
 function cluster_plot()
     calculate_cluster_size()
 
+    global color_palette = [:red, :cyan, :blue]
+    global x_dir_sg_plot = x_dir_sg[1:N_sg] |> Array
+    global x_dir_sg_plot = Array{Int64}(x_dir_sg_plot .+ 2)
+    global alpha = 0.2*ones(N_sg, 1)
+
     global x_pos_sg_plot = x_pos_sg[1:N_sg] |> Array
     global y_pos_sg_plot = y_pos_sg[1:N_sg] |> Array
-    scatter(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=14, markershape=:square, alpha=cluster_label_positive/cluster_label_number_positive_redefined[length(cluster_label_number_positive_redefined)]/2, color=:red, colorbar=true, size=(600,600), aspect_ratio=:equal, framestyle=:box, label=false)
-    scatter!(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=14, markershape=:square, alpha=cluster_label_negative/cluster_label_number_negative_redefined[length(cluster_label_number_negative_redefined)]/2, color=:blue, colorbar=true, size=(600,600), aspect_ratio=:equal, framestyle=:box, label=false)
+    scatter(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=12, markershape=:square, alpha=alpha, color=color_palette[x_dir_sg_plot], size=(600,600), aspect_ratio=:equal, framestyle=:box, label=false)
    
     global x_pos_sg_plot = x_pos_sg[1:N_sg] |> Array
     global y_pos_sg_plot = y_pos_sg[1:N_sg] |> Array
@@ -548,31 +555,35 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #function to plot cluster size
-function cluster_size_BarPlot()
-    calculate_cluster_size()
+function cluster_size_distribution()
 
     lo = @layout [a b]
-    plot1 = bar(cluster_label_number_positive_redefined, 
-                sort(cluster_size_positive), 
+    plot1 = histogram(cluster_dist_positive, 
                 label="Positive clusters, Bglob$(B_global)",
-                xlabel="Cluster number",
-                ylabel="Cluster size (number of spins)",
+                markerstrokewidth=0,
+                xlabel="Cluster size (number of spins)",
+                ylabel="Cluster population",
                 color=:red)
-    plot2 = bar(cluster_label_number_negative_redefined, 
-                sort(cluster_size_negative), 
+    plot2 = histogram(cluster_dist_negative, 
                 label="Negative clusters, Bglob$(B_global)",
-                xlabel="Cluster number",
-                ylabel="Cluster size (number of spins)",
+                markerstrokewidth=0,
+                xlabel="Cluster size (number of spins)",
+                ylabel="Cluster population",
                 color=:blue)
 
     plot(plot1, plot2, layout= lo)
-    title!("Cluster size at Bloc$(field_intensity)")
+    #title!("Cluster size distribution at Bglob$(B_global)")
+
+    savefig("Ising_cluster_size_distribution_Temp$(Temp).png")
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
+#Maxtrix to store data throughout the MC steps
+global cluster_dist_positive = Array{Int64}(undef,0)
+global cluster_dist_negative = Array{Int64}(undef,0)
+
+
 #MAIN BODY
-
-
 for l in eachindex(Temp_mx)
     global Temp = Temp_mx[l]    
     for i in eachindex(field_intensity_mx)
@@ -581,18 +592,18 @@ for l in eachindex(Temp_mx)
 dipole_magnetic_field()
 
 for MC_burn in 1:MC_burns
-    one_MC_kmc(rng, N_sg, replica_num, Temp)
+    one_MC(rng, Temp)
 end
 
-anim = @animate for snaps in 1:10
+anim = @animate for snaps in 1:100
     
-    for j in 1:(MC_steps/10 |> Int64)
-        one_MC_kmc(rng, N_sg, replica_num, Temp)
+    for j in 1:(MC_steps/100 |> Int64)
+        one_MC(rng, Temp)
     end
-    cluster_size_BarPlot()
+    calculate_cluster_size()
     
 end
-gif(anim, "Cluster_size_BarPlot_T$(Temp)_Bloc$(field_intensity).gif", fps=1)
+cluster_size_distribution()
 
 end
 end
