@@ -13,7 +13,7 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
 #FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
-global field_intensity_mx = [0.5]
+global field_intensity_mx = [0.0]
 #GLOBALLY APPLIED FIELD -- field intensity of globally applied field
 global B_global = 0.0    
 
@@ -27,7 +27,7 @@ global MC_steps = 100000
 global MC_burns = 100000
 
 #TEMPERATURE VALUES
-global Temp_mx = [0.8]
+global Temp_mx = [10]
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -257,7 +257,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
+                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
             end
         end
     end
@@ -525,10 +525,14 @@ end
 function cluster_plot()
     calculate_cluster_size()
 
+    global color_palette = [:red, :cyan, :blue]
+    global x_dir_sg_plot = x_dir_sg[1:N_sg] |> Array
+    global x_dir_sg_plot = Array{Int64}(x_dir_sg_plot .+ 2)
+    global alpha = 0.2*ones(N_sg, 1)
+
     global x_pos_sg_plot = x_pos_sg[1:N_sg] |> Array
     global y_pos_sg_plot = y_pos_sg[1:N_sg] |> Array
-    scatter(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=14, markershape=:square, alpha=cluster_label_positive/cluster_label_number_positive_redefined[length(cluster_label_number_positive_redefined)]/2, color=:red, colorbar=true, size=(600,600), aspect_ratio=:equal, framestyle=:box, label=false)
-    scatter!(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=14, markershape=:square, alpha=cluster_label_negative/cluster_label_number_negative_redefined[length(cluster_label_number_negative_redefined)]/2, color=:blue, colorbar=true, size=(600,600), aspect_ratio=:equal, framestyle=:box, label=false)
+    scatter(x_pos_sg_plot, y_pos_sg_plot, markerstrokewidth=0, markersize=12, markershape=:square, alpha=alpha, color=color_palette[x_dir_sg_plot], size=(600,600), aspect_ratio=:equal, framestyle=:box, label=false)
    
     global x_pos_sg_plot = x_pos_sg[1:N_sg] |> Array
     global y_pos_sg_plot = y_pos_sg[1:N_sg] |> Array
@@ -558,16 +562,16 @@ for l in eachindex(Temp_mx)
         dipole_magnetic_field()                                                        #CALCULATION OF MAGNETIC FIELD LINES ONE TIME AND IT WILL NOT CHANGE OVER TIME
 
         for j in 1:MC_burns                                                             #MC burn steps. Before starting the gif
-            one_MC_kmc(rng, N_sg, replica_num, Temp)
+            one_MC(rng, Temp)
         end
 
         anim = @animate for snaps in 1:10                                                                   #Monte carlo steps to take a snap shot      #for gif add 'anim = @animate'  before for loop
             for j in 1:(MC_steps/10 |> Int64)                                                            #Monte carlo steps to run inbetween two snapshots
-                one_MC_kmc(rng, N_sg, replica_num, Temp)                                                      #MONTE CARLO FUNCTION 
+                one_MC(rng, Temp)                                                      #MONTE CARLO FUNCTION 
             end
             cluster_plot()
         end
-        gif(anim, "Cluster_config_T$(Temp)_B$(field_intensity)_MagneticElements$(x_num)x$(y_num).gif", fps=1)
+        gif(anim, "Ising_Cluster_config_T$(Temp).gif", fps=1)
     end
 end
 
