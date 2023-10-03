@@ -1,5 +1,5 @@
 
-using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
+using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools, NaNStatistics
 
 
                                     # *******  CPU Code  ****** #
@@ -27,7 +27,7 @@ global MC_steps = 100000
 global MC_burns = 100000
 
 #TEMPERATURE VALUES
-global Temp_mx = [4.6]
+global Temp_mx = [1.9]
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -582,6 +582,8 @@ end
 global cluster_dist_positive = Array{Int64}(undef,0)
 global cluster_dist_negative = Array{Int64}(undef,0)
 
+global mag = zeros(MC_steps, 1) |> Array
+
 
 #MAIN BODY
 for l in eachindex(Temp_mx)
@@ -595,16 +597,29 @@ for MC_burn in 1:MC_burns
     one_MC(rng, Temp)
 end
 
-anim = @animate for snaps in 1:100
+for snaps in 1:100
     
     for j in 1:(MC_steps/100 |> Int64)
         one_MC(rng, Temp)
+        MC_count = (snaps-1)*(MC_steps/100 |> Int64) + j
+        mag[MC_count] = sum(x_dir_sg)/(N_sg*replica_num)
     end
     calculate_cluster_size()
     
 end
 cluster_size_distribution()
 
+MC_ref = collect(1:MC_steps)
+window_size = 100
+mag_plot = movmean(mag, window_size)
+plot( MC_ref, mag_plot,
+    label="Temp:$(Temp) Bglob:$(B_global)",
+    linewidth=2,
+    xlabel="MC steps",
+    ylabel="Avg. Magnetization",
+    title = "Magnetization vs MC steps")
+
+savefig("MagVsMCstepTemp$(Temp).png")
 end
 end
 
