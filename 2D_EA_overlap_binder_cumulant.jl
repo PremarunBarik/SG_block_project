@@ -5,12 +5,15 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 #This script applies only with 3 or more than 3 layers of spin glass material
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
-
+#FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
+global field_intensity_mx = 0.0
+#GLOBALLY APPLIED FIELD -- field intensity of globally applied field
+global B_global = 0.0   
 
 rng = MersenneTwister()
 
 #NUMBER OF REPLICAS 
-replica_num = 400
+replica_num = 50
 
 #NUMBER OF MC MC STEPS 
 MC_steps = 100000
@@ -18,8 +21,8 @@ MC_burns = 100000
 
 #TEMPERATURE VALUES
 min_Temp = 0.1
-max_Temp = 2.0
-Temp_step = 100
+max_Temp = 1.5
+Temp_step = 50
 Temp_interval = (max_Temp - min_Temp)/Temp_step
 Temp_values = collect(min_Temp:Temp_interval:max_Temp)
 Temp_values = reverse(Temp_values)
@@ -27,8 +30,9 @@ Temp_values = reverse(Temp_values)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #NUMBER OF SPINGLASS ELEMENTS
-n_x = 10
-n_y = 10
+n_x = 8
+n_y = 8
+n_z = 1
 
 N_sg = n_x*n_y
 
@@ -57,11 +61,12 @@ x_dir_sg_2 = repeat(x_dir_sg_2, replica_num, 1)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #REFERENCE POSITION OF THE SPIN ELEMENTS IN MATRIX
-mx_sg = CuArray(collect(1:N_sg*replica_num))
+mx_sg = collect(1:N_sg*replica_num) |> CuArray
 
 #REFERENCE POSITION OF THE SPIN ELEMENTS IN GEOMETRY
 x_pos_sg = zeros(N_sg, 1)
 y_pos_sg = zeros(N_sg, 1)
+z_pos_sg = fill(n_z, N_sg)
 
 for i in 1:N_sg
     x_pos_sg[i] = trunc((i-1)/n_x)+1                    #10th position
@@ -171,13 +176,13 @@ rand_rep_ref = CuArray{Int64}(rand_rep_ref)
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE ENERGY DUE TO rkky AND MAGNETIC BLOCKS
-global energy_tot_1 = zeros(N_sg*replica_num, 1) |> CuArray
-global energy_tot_2 = zeros(N_sg*replica_num, 1) |> CuArray
+global energy_RKKY_1 = zeros(N_sg*replica_num, 1) |> CuArray
+global energy_RKKY_2 = zeros(N_sg*replica_num, 1) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #COMPUTE TOTAL ENERGY OF THE SYSTEM
-function compute_tot_energy_spin_glass()
+function compute_RKKY_energy_spin_glass()
     r_s = (mx_sg.-1).*N_sg .+ NN_s
     r_n = (mx_sg.-1).*N_sg .+ NN_n 
     r_e = (mx_sg.-1).*N_sg .+ NN_e 
@@ -186,8 +191,25 @@ function compute_tot_energy_spin_glass()
     energy_x_1 = x_dir_sg_1.*((J_NN[r_s].*x_dir_sg_1[NN_s .+ spin_rep_ref]) .+ (J_NN[r_n].*x_dir_sg_1[NN_n .+ spin_rep_ref]) .+ (J_NN[r_e].*x_dir_sg_1[NN_e .+ spin_rep_ref]) .+ (J_NN[r_w].*x_dir_sg_1[NN_w .+ spin_rep_ref]))
     energy_x_2 = x_dir_sg_2.*((J_NN[r_s].*x_dir_sg_2[NN_s .+ spin_rep_ref]) .+ (J_NN[r_n].*x_dir_sg_2[NN_n .+ spin_rep_ref]) .+ (J_NN[r_e].*x_dir_sg_2[NN_e .+ spin_rep_ref]) .+ (J_NN[r_w].*x_dir_sg_2[NN_w .+ spin_rep_ref]))
    
-    global energy_tot_1 = energy_x_1
-    global energy_tot_2 = energy_x_2
+    global energy_RKKY_1 = energy_x_1
+    global energy_RKKY_2 = energy_x_2
+
+    return energy_RKKY_1, energy_RKKY_2
+end
+
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#MATRIX TO STORE DELTA ENERGY
+global energy_tot_1 = zeros(N_sg*replica_num, 1) |> CuArray
+global energy_tot_2 = zeros(N_sg*replica_num, 1) |> CuArray
+#------------------------------------------------------------------------------------------------------------------------------#
+
+#COMPUTE THE ENERGY CHANGE OF THE SYSTEM
+function compute_tot_energy_spin_glass()
+    compute_RKKY_energy_spin_glass()
+
+    global energy_tot_1 = 2*(energy_RKKY_1 .+ (B_global*x_dir_sg_1))
+    global energy_tot_2 = 2*(energy_RKKY_2 .+ (B_global*x_dir_sg_2))
 
     return energy_tot_1, energy_tot_2
 end
@@ -195,8 +217,8 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #MATRIX TO STORE DELTA ENERGY
-global del_energy_1 = CuArray(zeros(replica_num, 1))
-global del_energy_2 = CuArray(zeros(replica_num, 1))
+global del_energy_1 = zeros(replica_num, 1) |> CuArray
+global del_energy_1 = zeros(replica_num, 1) |> CuArray
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -209,17 +231,17 @@ function compute_del_energy_spin_glass(rng)
     global r_1 = rand_pos_1 .+ rand_rep_ref
     global r_2 = rand_pos_2 .+ rand_rep_ref
 
-    global del_energy_1 = 2*energy_tot_1[r_1]
-    global del_energy_2 = 2*energy_tot_2[r_2]
+    global del_energy_1 = energy_tot_1[r_1]
+    global del_energy_2 = energy_tot_2[r_2]
+
 
     return del_energy_1, del_energy_2
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
-#MATRIX TO STORE DELTA ENERGY
-global trans_rate_1 = CuArray(zeros(replica_num, 1))
-global trans_rate_2 = CuArray(zeros(replica_num, 1))
+#Matrix to keep track of which flipped how many times
+#global flip_count = Array(zeros(N_sg*replica_num, 1))
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -227,15 +249,17 @@ global trans_rate_2 = CuArray(zeros(replica_num, 1))
 function one_MC(rng, Temp)                                           #benchmark time: 1.89ms (smallest)
     compute_del_energy_spin_glass(rng)
 
-    global trans_rate_1 = exp.(-del_energy_1/Temp)
-    global trans_rate_2 = exp.(-del_energy_2/Temp)
+    trans_rate_1 = exp.(-del_energy_1/Temp)
+    trans_rate_2 = exp.(-del_energy_2/Temp)
     global rand_num_flip_1 = CuArray(rand(rng, Float64, (replica_num, 1)))
     global rand_num_flip_2 = CuArray(rand(rng, Float64, (replica_num, 1)))
     flipit_1 = sign.(rand_num_flip_1 .- trans_rate_1)
     flipit_2 = sign.(rand_num_flip_2 .- trans_rate_2)
-
     global x_dir_sg_1[r_1] = flipit_1.*x_dir_sg_1[r_1]
     global x_dir_sg_2[r_2] = flipit_2.*x_dir_sg_2[r_2]
+
+#    flipit = (abs.(flipit .- 1))/2
+#    global flip_count[r] = flip_count[r] .+ flipit
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
@@ -247,7 +271,8 @@ overlap_binder = zeros(length(Temp_values), 1)
 
 #MAIN BODY
 @CUDA.allowscalar for i in eachindex(Temp_values)                              #TEMPERATURE LOOP 
-    
+
+
     global Temp_index = i
     global Temp = Temp_values[Temp_index] 
 
@@ -282,15 +307,15 @@ overlap_binder = zeros(length(Temp_values), 1)
     overlap_av_pow2 .= (overlap_av_pow2/MC_steps) .^ 2
     overlap_av_pow4 .= (overlap_av_pow4/MC_steps)
 
-    overlap_binder_replica .= 0.5 .* (3 .- (overlap_av_pow4 ./ overlap_av_pow2))
-    overlap_binder[Temp_index] = sum(overlap_binder_replica)/replica_num
+    overlap_binder_replica .= (3 .- (overlap_av_pow4 ./ overlap_av_pow2))
+    overlap_binder[Temp_index] = 0.5*(sum(overlap_binder_replica)/replica_num)
 
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #SAVING THE GENERATED DATA
-open("2D_EA_OverlapBinder_10x10_100K.txt", "w") do io 					#creating a file to save data
+open("2D_EA_OverlapBinder_$(n_x)x$(n_y)_MC$(MC_steps/1000 |>Int64)K.txt", "w") do io 					#creating a file to save data
    for i in 1:length(Temp_values)
       println(io,i,"\t", Temp_values[i],"\t",overlap_binder[i])
    end
