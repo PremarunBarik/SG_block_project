@@ -302,17 +302,17 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #creating a matrix with zero diagonal terms  to calculate the correlation terms
-diag_zero = fill(1, (N_sg, N_sg)) |> CuArray
+diag_zero = fill(1, (N_sg, N_sg)) |> Array
 diag_zero[diagind(diag_zero)] .= 0
-global  diag_zero = repeat(diag_zero, replica_num, 1)
+global  diag_zero = repeat(diag_zero, replica_num, 1) |> CuArray
 
 #Put inside the MC loop, after the MC function - Calculation of spatial correlation function terms
 function spatial_correlation_terms(N_sg, replica_num)
-    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))' |>  Array
+    spin_mux = reshape(x_dir_sg, (N_sg, replica_num))'  |>  Array
     spin_mux = repeat(spin_mux, inner = (N_sg, 1))                                  #Scalar indexing - less time consum$
     spin_mux = spin_mux |> CuArray
 
-    global term_1 += x_dir_sg .* spin_mux                                           #sum of sigma_i*sigma_j
+    global term_1 += x_dir_sg .* spin_mux .* diag_zero                                           #sum of sigma_i*sigma_j
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
@@ -355,6 +355,7 @@ calculate_dipole_field()                                                       #
 
     susceptibility_replica = sum(term_1, dims=2)/MC_steps
     susceptibility_replica = Array(sum(reshape(susceptibility_replica, (N_sg,replica_num)), dims=1)) .^ 2
+    susceptibility[Temp_index] = sum(susceptibility_replica)/replica_num
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
