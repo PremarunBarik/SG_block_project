@@ -13,9 +13,9 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools, NaNStatistics
 #Although debatable - 3D EA model transition temperature is between 0.9 - 1.2
 
 #FERROMAGNETIC BLOCK FIELD INTENSITY -- field intensity of locally appplied field
-global field_intensity_mx = [0.0]
+global field_intensity= 0.0
 #GLOBALLY APPLIED FIELD -- field intensity of globally applied field
-global B_global = 0.0   
+global B_global_mx = [0.4, 0.45, 0.5, 0.55, 0.6]   
 
 rng = MersenneTwister()
 
@@ -27,7 +27,7 @@ global MC_steps = 100000
 global MC_burns = 100000
 
 #TEMPERATURE VALUES
-global Temp_mx = [1.9]
+global Temp_mx = [0.2, 0.25, 0.3, 0.35, 0.4]
 
 #------------------------------------------------------------------------------------------------------------------------------#
 
@@ -76,8 +76,8 @@ end
 #------------------------------------------------------------------------------------------------------------------------------#
 
 #INITIALIZATION OF FERROMAGNETIC BLOCKS
-x_num = 1                                                       #number of blocks along X axis 
-y_num = 1                                                       #number of blocks along Y axis
+x_num = 2                                                       #number of blocks along X axis 
+y_num = 2                                                       #number of blocks along Y axis
 N_fm = x_num*y_num
 
 x_dist = n_x/x_num                                              #distance between two blocks along x axis 
@@ -257,7 +257,7 @@ for i in 1:N_sg
             if i==j
                 continue
             else
-                J_NN[i,j,k] = J_NN[j,i,k] = 1                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
+                J_NN[i,j,k] = J_NN[j,i,k] = (-1)^rand(rng, Int64)                                   #for ising: 1, for spin glas: random (-1)^rand(rng, Int64)
             end
         end
     end
@@ -574,52 +574,58 @@ function cluster_size_distribution()
     plot(plot1, plot2, layout= lo)
     #title!("Cluster size distribution at Bglob$(B_global)")
 
-    savefig("Ising_cluster_size_distribution_Temp$(Temp).png")
+    savefig("EA_ClusterSizeDistribution_Temp$(Temp)_Bglob$(B_global).png")
 end
 
 #------------------------------------------------------------------------------------------------------------------------------#
+
+
+#MAIN BODY
+for l in eachindex(Temp_mx)
+    global Temp = Temp_mx[l]    
+    for i in eachindex(B_global_mx)
+        global B_global = B_global_mx[i]
+
+dipole_magnetic_field()
+
 #Maxtrix to store data throughout the MC steps
 global cluster_dist_positive = Array{Int64}(undef,0)
 global cluster_dist_negative = Array{Int64}(undef,0)
 
 global mag = zeros(MC_steps, 1) |> Array
 
-
-#MAIN BODY
-for l in eachindex(Temp_mx)
-    global Temp = Temp_mx[l]    
-    for i in eachindex(field_intensity_mx)
-        global field_intensity = field_intensity_mx[i]
-
-dipole_magnetic_field()
+#SPIN ELEMENT DIRECTION IN REPLICAS
+x_dir_sg = [(-1)^rand(rng, Int64) for i in 1:N_sg]
+global x_dir_sg = repeat(x_dir_sg, replica_num, 1)
 
 for MC_burn in 1:MC_burns
-    one_MC(rng, Temp)
+    one_MC_kmc(rng, N_sg, replica_num, Temp)
 end
 
 for snaps in 1:100
     
     for j in 1:(MC_steps/100 |> Int64)
-        one_MC(rng, Temp)
+        one_MC_kmc(rng, N_sg, replica_num, Temp)
         MC_count = (snaps-1)*(MC_steps/100 |> Int64) + j
         mag[MC_count] = sum(x_dir_sg)/(N_sg*replica_num)
     end
     calculate_cluster_size()
     
 end
-cluster_size_distribution()
+#cluster_size_distribution()
 
 MC_ref = collect(1:MC_steps)
 window_size = 100
 mag_plot = movmean(mag, window_size)
 plot( MC_ref, mag_plot,
     label="Temp:$(Temp) Bglob:$(B_global)",
+    framestyle=:box,
     linewidth=2,
     xlabel="MC steps",
     ylabel="Avg. Magnetization",
-    title = "Magnetization vs MC steps")
+    title = "Magnetization vs MC steps (Temp:$(Temp))")
 
-savefig("MagVsMCstepTemp$(Temp).png")
+savefig("EA_MagVsMCstep_Temp$(Temp)_Bglob$(B_global).png")
 end
 end
 
