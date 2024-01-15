@@ -3,8 +3,8 @@ using CUDA, Random, Plots, LinearAlgebra, BenchmarkTools
 rng = MersenneTwister()
 
 #considered lattice size 
-n_x = 10
-n_y = 10
+n_x = 50
+n_y = 50
 
 N_lattice = (n_x * n_y)
 
@@ -65,6 +65,8 @@ J_NN_n_counter = zeros(N_sg, 1)
 J_NN_e_counter = zeros(N_sg, 1)
 J_NN_w_counter = zeros(N_sg, 1)
 
+Interaction_mx = Array{Float64}(undef,0)
+
 for i in 1:N_sg                             #loop over all the spin ELEMENTS
         if x_pos_sg[i]%n_x == 0
             r_e =  (x_pos_sg[i]-n_x)*n_x + y_pos_sg[i]
@@ -74,8 +76,9 @@ for i in 1:N_sg                             #loop over all the spin ELEMENTS
         NN_e[i] = r_e
         for j in 1:N_sg
             if mx_sg[j]==r_e && J_NN_e_counter[i]==0 && J_NN_w_counter[j]==0
-                J_NN_e[i] = J_NN_w[j] = rand(rng, Int64)
+                J_NN_e[i] = J_NN_w[j] = randn()
                 J_NN_e_counter[i] = J_NN_w_counter[j] = 1
+                push!(Interaction_mx, J_NN_e[i])
             end
         end
         #-----------------------------------------------------------#
@@ -87,8 +90,9 @@ for i in 1:N_sg                             #loop over all the spin ELEMENTS
         NN_w[i] = r_w
         for j in 1:N_sg
             if mx_sg[j]==r_w && J_NN_w_counter[i]==0 && J_NN_e_counter[j]==0
-                J_NN_w[i] = J_NN_e[j] = rand(rng, Int64)
+                J_NN_w[i] = J_NN_e[j] = randn()
                 J_NN_w_counter[i] = J_NN_e_counter[j] = 1
+                push!(Interaction_mx, J_NN_w[i])
             end
         end
         #-----------------------------------------------------------#
@@ -100,8 +104,9 @@ for i in 1:N_sg                             #loop over all the spin ELEMENTS
         NN_n[i] = r_n
         for j in 1:N_sg
             if mx_sg[j]==r_n && J_NN_n_counter[i]==0 && J_NN_s_counter[j]==0
-                J_NN_n[i] = J_NN_s[j] = rand(rng, Int64)
+                J_NN_n[i] = J_NN_s[j] = randn()
                 J_NN_n_counter[i] = J_NN_s_counter[j] = 1
+                push!(Interaction_mx, J_NN_n[i])
             end
         end
         #-----------------------------------------------------------#
@@ -113,8 +118,17 @@ for i in 1:N_sg                             #loop over all the spin ELEMENTS
         NN_s[i] = r_s
         for j in 1:N_sg
             if mx_sg[j]==r_s && J_NN_s_counter[i]==0 && J_NN_n_counter[j]==0
-                J_NN_s[i] = J_NN_n[j] = rand(rng, Int64)
+                J_NN_s[i] = J_NN_n[j] = randn()
                 J_NN_s_counter[i] = J_NN_n_counter[j] = 1
+                push!(Interaction_mx, J_NN_s[i])
             end
         end
 end
+
+Interaction_mx_sort = sort!(abs.(Interaction_mx))
+Interaction_mx = Interaction_mx./Interaction_mx_sort[length(Interaction_mx)]
+
+J_NN_s = J_NN_s./Interaction_mx_sort[length(Interaction_mx)]
+J_NN_n = J_NN_n./Interaction_mx_sort[length(Interaction_mx)]
+J_NN_e = J_NN_e./Interaction_mx_sort[length(Interaction_mx)]
+J_NN_w = J_NN_w./Interaction_mx_sort[length(Interaction_mx)]
